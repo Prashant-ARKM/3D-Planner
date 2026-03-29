@@ -5,691 +5,1024 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>3D Planner - AI Floor Plan Pipeline</title>
 
+  <!--
+    ============================================================
+    FONT
+    Using "Syne" (display) + "DM Sans" (body) — architectural feel
+    ============================================================
+  -->
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
   <style>
-    /* ============================================
-       DOCUMENTATION: CSS STYLING
-       ============================================
-       This section controls how the page looks.
-       We use a modern, clean design with a 
-       professional color scheme.
-    ============================================ */
-
-    /* ===== ROOT VARIABLES =====
-       These are our color palette - like a ship's flag colors!
-       Change these to change the entire theme
-    */
+    /* ============================================================
+       CSS VARIABLES — change these to retheme the entire page
+       ============================================================ */
     :root {
-      --primary-blue: #2563eb;      /* Main action color */
-      --primary-blue-dark: #1d4ed8; /* Hover state */
-      --background-gray: #f8fafc;   /* Page background */
-      --card-white: #ffffff;        /* Box backgrounds */
-      --text-dark: #1e293b;         /* Main text */
-      --text-light: #64748b;        /* Secondary text */
-      --border-color: #e2e8f0;      /* Borders */
-      --success-green: #10b981;     /* Success messages */
-      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      --bg:           #0d0f14;        /* page background */
+      --surface:      #161920;        /* card background */
+      --surface2:     #1e222d;        /* nested surfaces */
+      --border:       #2a2f3d;        /* subtle borders */
+      --accent:       #4f8eff;        /* primary blue */
+      --accent2:      #a78bfa;        /* secondary purple */
+      --green:        #34d399;        /* success */
+      --red:          #f87171;        /* error */
+      --text:         #e8eaf0;        /* main text */
+      --muted:        #6b7280;        /* secondary text */
+      --wall-color:   #c8a96e;        /* 3D wall colour */
+      --floor-color:  #4a7c6f;        /* 3D floor colour */
+      --shadow:       0 8px 32px rgba(0,0,0,0.5);
     }
 
-    /* ===== PAGE SETUP ===== */
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    /* ============================================================
+       RESET & BASE
+       ============================================================ */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background-color: var(--background-gray);
-      color: var(--text-dark);
-      padding: 20px;
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
       min-height: 100vh;
+      padding: 24px;
     }
 
-    /* ===== HEADER WITH LOGO ===== */
+    /* ============================================================
+       HEADER
+       ============================================================ */
     .header {
       display: flex;
       align-items: center;
-      margin-bottom: 30px;
-      padding: 15px 0;
+      gap: 14px;
+      margin-bottom: 32px;
     }
 
-    .logo-container {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    /* Simple geometric logo */
     .logo {
-      width: 50px;
-      height: 50px;
-      background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-dark));
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 24px;
-      font-weight: bold;
-      box-shadow: var(--shadow);
+      /* Architectural bracket motif */
+      width: 48px; height: 48px;
+      border: 3px solid var(--accent);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Syne', sans-serif;
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: -1px;
     }
 
     .site-title {
-      font-size: 28px;
-      font-weight: 600;
-      color: var(--text-dark);
+      font-family: 'Syne', sans-serif;
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--text);
     }
 
-    /* ===== MAIN GRID LAYOUT =====
-       This creates our 2x1 grid:
-       [Box 1] [Box 2]
-       [   Box 3      ]
-    */
-    .grid-container {
+    .site-subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* ============================================================
+       GRID LAYOUT
+       Two columns on desktop, stacked on mobile
+       ============================================================ */
+    .grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;  /* Two equal columns */
+      grid-template-columns: 1fr 1fr;
       gap: 20px;
       max-width: 1400px;
       margin: 0 auto;
     }
 
-    /* ===== INDIVIDUAL BOX STYLING ===== */
-    .box {
-      background: var(--card-white);
-      padding: 25px;
-      border-radius: 12px;
+    /* A card that spans both columns */
+    .span-full { grid-column: 1 / -1; }
+
+    /* ============================================================
+       CARD
+       ============================================================ */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
       box-shadow: var(--shadow);
-      border: 1px solid var(--border-color);
     }
 
-    .box h2 {
-      font-size: 20px;
+    .card-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      color: var(--text);
       margin-bottom: 20px;
-      color: var(--text-dark);
-      border-bottom: 2px solid var(--primary-blue);
-      padding-bottom: 10px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    /* Box 3 spans both columns */
-    .box-full {
-      grid-column: 1 / -1;  /* Stretches across all columns */
-    }
+    .card-title span { font-size: 18px; }
 
-    /* ===== FILE UPLOAD SECTION ===== */
-    .upload-area {
-      border: 2px dashed var(--border-color);
-      border-radius: 8px;
-      padding: 30px;
+    /* ============================================================
+       UPLOAD AREA
+       ============================================================ */
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 36px 20px;
       text-align: center;
-      background-color: #f8fafc;
-      margin-bottom: 20px;
-      transition: all 0.3s ease;
+      background: var(--surface2);
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
     }
 
-    .upload-area:hover {
-      border-color: var(--primary-blue);
-      background-color: #f1f5f9;
+    .upload-zone:hover,
+    .upload-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(79, 142, 255, 0.06);
     }
 
-    /* Hide the default ugly file input */
-    #fileInput {
-      display: none;
+    .upload-zone p {
+      color: var(--muted);
+      font-size: 14px;
+      margin-top: 10px;
     }
 
-    /* ===== IMAGE PREVIEW ===== */
+    /* The actual <input> is hidden — we trigger it via JS */
+    #fileInput { display: none; }
+
     #imagePreview {
-      max-width: 100%;
-      max-height: 400px;
-      margin-top: 20px;
+      width: 100%;
+      max-height: 280px;
+      object-fit: contain;
       border-radius: 8px;
-      display: none;  /* Hidden until image is selected */
-      box-shadow: var(--shadow);
+      margin-top: 16px;
+      border: 1px solid var(--border);
+      display: none;          /* hidden until a file is picked */
     }
+    #imagePreview.show { display: block; }
 
-    #imagePreview.show {
-      display: block;
-    }
-
-    /* ===== BUTTONS ===== */
-    .button {
-      padding: 12px 28px;
+    /* ============================================================
+       BUTTONS
+       ============================================================ */
+    .btn {
+      padding: 11px 22px;
       border: none;
       border-radius: 8px;
-      font-size: 16px;
-      font-weight: 500;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: 'DM Sans', sans-serif;
       cursor: pointer;
-      transition: all 0.3s ease;
-      margin: 5px;
+      transition: all 0.2s;
     }
 
-    .button-primary {
-      background-color: var(--primary-blue);
-      color: white;
+    .btn-outline {
+      background: transparent;
+      color: var(--accent);
+      border: 1.5px solid var(--accent);
+    }
+    .btn-outline:hover { background: rgba(79,142,255,0.1); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover { filter: brightness(1.15); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 18px;
+      flex-wrap: wrap;
     }
 
-    .button-primary:hover {
-      background-color: var(--primary-blue-dark);
-      transform: translateY(-2px);
-      box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3);
+    /* ============================================================
+       STATUS BANNER
+       ============================================================ */
+    .status {
+      margin-top: 14px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      display: none;
     }
+    .status.show { display: block; }
+    .status.ok  { background: rgba(52,211,153,0.12); color: var(--green); border-left: 3px solid var(--green); }
+    .status.err { background: rgba(248,113,113,0.12); color: var(--red);   border-left: 3px solid var(--red); }
 
-    .button-secondary {
-      background-color: var(--card-white);
-      color: var(--primary-blue);
-      border: 2px solid var(--primary-blue);
-    }
-
-    .button-secondary:hover {
-      background-color: var(--primary-blue);
-      color: white;
-    }
-
-    .button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    /* ===== 3D VIEWER CONTAINER ===== */
+    /* ============================================================
+       3D VIEWER
+       ============================================================ */
     #threeContainer {
       width: 100%;
-      height: 500px;
-      border-radius: 8px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      height: 480px;
+      border-radius: 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: white;
-      font-size: 18px;
       overflow: hidden;
+      position: relative;
     }
 
-    /* ===== OUTPUT DISPLAY ===== */
-    .output-section {
-      margin-bottom: 25px;
-    }
-
-    .output-section h3 {
-      color: var(--primary-blue);
-      margin-bottom: 12px;
-      font-size: 18px;
-    }
-
-    .output-content {
-      background-color: #f8fafc;
-      padding: 15px;
-      border-radius: 6px;
-      border-left: 4px solid var(--primary-blue);
-    }
-
-    pre {
-      background-color: var(--text-dark);
-      color: #10b981;
-      padding: 15px;
-      border-radius: 6px;
-      overflow-x: auto;
-      font-family: 'Courier New', monospace;
+    /* Placeholder shown before upload */
+    .viewer-placeholder {
+      text-align: center;
+      color: var(--muted);
       font-size: 14px;
-      line-height: 1.6;
+      pointer-events: none;
     }
 
-    /* ===== STATUS MESSAGES ===== */
-    .status-message {
-      padding: 12px 20px;
-      border-radius: 8px;
-      margin-top: 15px;
-      display: none;
-    }
-
-    .status-message.show {
+    .viewer-placeholder .big-icon {
+      font-size: 48px;
       display: block;
+      margin-bottom: 12px;
+      opacity: 0.4;
     }
 
-    .status-success {
-      background-color: #d1fae5;
-      color: #065f46;
-      border-left: 4px solid var(--success-green);
-    }
-
-    .status-error {
-      background-color: #fee2e2;
-      color: #991b1b;
-      border-left: 4px solid #ef4444;
-    }
-
-    /* ===== LOADING SPINNER ===== */
+    /* Loading spinner inside the viewer */
     .spinner {
-      border: 4px solid rgba(255, 255, 255, 0.3);
-      border-top: 4px solid white;
+      width: 36px; height: 36px;
+      border: 3px solid rgba(255,255,255,0.1);
+      border-top-color: var(--accent);
       border-radius: 50%;
-      width: 40px;
-      height: 40px;
-      animation: spin 1s linear infinite;
-      margin: 20px auto;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 12px;
       display: none;
     }
+    .spinner.show { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    .spinner.show {
-      display: block;
+    /* Orbit controls hint overlaid on the 3D canvas */
+    .controls-hint {
+      position: absolute;
+      bottom: 10px; right: 12px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.3);
+      pointer-events: none;
     }
 
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+    /* ============================================================
+       RESULTS SECTION (materials + explanation)
+       ============================================================ */
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
     }
 
-    /* ===== RESPONSIVE DESIGN =====
-       On smaller screens, stack boxes vertically
-    */
-    @media (max-width: 968px) {
-      .grid-container {
-        grid-template-columns: 1fr;  /* Single column on mobile */
-      }
+    .result-block h3 {
+      font-family: 'Syne', sans-serif;
+      font-size: 14px;
+      color: var(--accent2);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* Material chips */
+    .material-chip {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+
+    .material-chip .chip-type {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 4px;
+    }
+
+    .material-chip .chip-name {
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--text);
+    }
+
+    .material-chip .chip-reason {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+
+    /* Explanation text box */
+    .explanation-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--text);
+      white-space: pre-wrap;    /* FIX: preserve newlines */
+      height: 100%;
+    }
+
+    /* Raw JSON debug toggle */
+    details {
+      margin-top: 20px;
+    }
+    summary {
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--muted);
+      user-select: none;
+    }
+    summary:hover { color: var(--accent); }
+
+    pre.json {
+      background: #0a0c10;
+      color: var(--green);
+      padding: 14px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 12px;
+      line-height: 1.6;
+      margin-top: 8px;
+      border: 1px solid var(--border);
+    }
+
+    /* ============================================================
+       RESPONSIVE
+       ============================================================ */
+    @media (max-width: 900px) {
+      .grid        { grid-template-columns: 1fr; }
+      .results-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 
 <body>
 
-  <!-- ============================================
-       HEADER SECTION
-       Contains logo and site title
-  ============================================ -->
-  <div class="header">
-    <div class="logo-container">
-      <div class="logo">3D</div>
-      <h1 class="site-title">3D Planner</h1>
+  <!-- ============================================================
+       HEADER
+  ============================================================ -->
+  <header class="header">
+    <div class="logo">3D</div>
+    <div>
+      <div class="site-title">3D Planner</div>
+      <div class="site-subtitle">AI-powered floor plan → 3D structure pipeline</div>
     </div>
-  </div>
+  </header>
 
-  <!-- ============================================
-       MAIN GRID CONTAINER
-       Three boxes: Upload, 3D View, Materials
-  ============================================ -->
-  <div class="grid-container">
+  <!-- ============================================================
+       MAIN GRID
+  ============================================================ -->
+  <div class="grid">
 
-    <!-- ===== BOX 1: UPLOAD SECTION ===== -->
-    <div class="box">
-      <h2>📄 Upload Floor Plan</h2>
-      
-      <!-- Upload area with dashed border -->
-      <div class="upload-area" id="uploadArea">
-        <p style="color: var(--text-light); margin-bottom: 15px;">
-          Click "Attach File" to select your 2D floor plan image
+    <!-- ====================================================
+         BOX 1: UPLOAD
+    ==================================================== -->
+    <div class="card">
+      <div class="card-title"><span>📄</span> Upload Floor Plan</div>
+
+      <!--
+        Upload zone — clicking anywhere in the dashed box
+        triggers the hidden file input below.
+      -->
+      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+        <span style="font-size:36px;">🗂️</span>
+        <p>Click to select a 2D floor plan image<br>
+           <small>JPG, PNG, BMP, TIFF, WEBP accepted</small>
         </p>
-        
-        <!-- Hidden file input (standard HTML feature) -->
-        <input type="file" id="fileInput" accept="image/*">
-        
-        <!-- Attach File Button -->
-        <button class="button button-secondary" onclick="attachFile()">
-          📎 Attach File
-        </button>
       </div>
 
-      <!-- Image preview (appears after file selection) -->
+      <!-- Hidden file input — only images allowed -->
+      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/bmp,image/tiff,image/webp">
+
+      <!-- Preview of selected image (hidden by default) -->
       <img id="imagePreview" alt="Floor plan preview">
 
-      <!-- Send Button (appears after file is attached) -->
-      <div style="text-align: center; margin-top: 20px;">
-        <button class="button button-primary" id="sendButton" onclick="sendFile()" disabled>
-          🚀 Send to AI
+      <!-- Action buttons -->
+      <div class="btn-row">
+        <button class="btn btn-outline" onclick="document.getElementById('fileInput').click()">
+          📎 Change File
+        </button>
+        <button class="btn btn-primary" id="sendButton" disabled onclick="sendFile()">
+          🚀 Analyse &amp; Build 3D
         </button>
       </div>
 
-      <!-- Status message area -->
-      <div class="status-message" id="statusMessage"></div>
+      <!-- Status / feedback message -->
+      <div class="status" id="statusMsg"></div>
     </div>
 
-    <!-- ===== BOX 2: 3D MODEL OUTPUT ===== -->
-    <div class="box">
-      <h2>🏗️ 3D Model View</h2>
-      
-      <!-- Three.js canvas will appear here -->
+    <!-- ====================================================
+         BOX 2: 3D VIEWER
+    ==================================================== -->
+    <div class="card">
+      <div class="card-title"><span>🏗️</span> 3D Model View</div>
+
+      <!--
+        Three.js renders a <canvas> inside this div.
+        Before upload: placeholder text is shown.
+        After upload: canvas replaces the placeholder.
+      -->
       <div id="threeContainer">
-        <div style="text-align: center;">
-          <div class="spinner" id="loadingSpinner"></div>
-          <p id="threeMessage">Upload a floor plan to see the 3D model</p>
+        <div class="viewer-placeholder">
+          <div class="spinner" id="spinner"></div>
+          <span class="big-icon" id="viewerIcon">🏛️</span>
+          <div id="viewerMsg">Upload a floor plan to generate the 3D model</div>
         </div>
+      </div>
+
+      <!-- Shown once canvas is active -->
+      <div class="controls-hint" id="controlsHint" style="display:none;">
+        🖱 Drag to orbit · Scroll to zoom
       </div>
     </div>
 
-    <!-- ===== BOX 3: MATERIALS & EXPLANATION ===== -->
-    <div class="box box-full">
-      <h2>📊 Materials & AI Analysis</h2>
-      
+    <!-- ====================================================
+         BOX 3: MATERIALS & EXPLANATION (full width)
+    ==================================================== -->
+    <div class="card span-full">
+      <div class="card-title"><span>📊</span> Materials &amp; AI Analysis</div>
+
       <div id="outputContainer">
-        <p style="color: var(--text-light); text-align: center; padding: 40px;">
-          Results will appear here after processing your floor plan
+        <p style="color:var(--muted);text-align:center;padding:48px 0;font-size:14px;">
+          Results will appear here after processing
         </p>
       </div>
     </div>
 
-  </div>
-
-  <!-- ============================================
-       THREE.JS LIBRARY
-       This helps us render 3D graphics
-  ============================================ -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
-
-  <script>
-    /* ============================================
-       JAVASCRIPT DOCUMENTATION
-       ============================================
-       
-       WHAT CHANGED FROM ORIGINAL:
-       1. Simplified file handling - removed FormData complexity
-       2. Added clear step-by-step comments for beginners
-       3. Separated concerns into smaller functions
-       4. Added visual feedback (status messages, loading)
-       5. Improved error handling with user-friendly messages
-       
-       MAIN FUNCTIONS:
-       - attachFile()   : Opens file picker
-       - previewImage() : Shows image preview
-       - sendFile()     : Sends image to backend API
-       - render3D()     : Creates 3D visualization
-       - displayResults(): Shows materials and explanation
-    ============================================ */
-
-    // ==========================================
-    // GLOBAL VARIABLE
-    // ==========================================
-    // This stores the selected file so we can send it later
-    let selectedFile = null;
+  </div><!-- /grid -->
 
 
-    // ==========================================
-    // FUNCTION 1: ATTACH FILE
-    // ==========================================
-    // What it does: Opens the file picker when user clicks "Attach File"
-    // How it works: Triggers a click on the hidden file input
-    function attachFile() {
-      // Click the hidden file input element
-      document.getElementById('fileInput').click();
-    }
+  <!--
+    ============================================================
+    THREE.JS — ES MODULE IMPORT  (fixes two console errors)
+    ============================================================
+    WHY THIS CHANGED:
+      1. three.min.js (the old "global script" build) is deprecated
+         since r150 and removed at r160. Using it shows a warning.
+      2. OrbitControls loaded via <script src="...jsdelivr..."> was
+         blocked by Edge / Firefox Tracking Prevention, which stops
+         third-party scripts from accessing browser storage.
 
+    THE FIX — importmap + type="module":
+      - importmap tells the browser where to resolve bare imports
+        like `import * as THREE from 'three'`
+      - type="module" scripts are treated as ES Modules; they are
+        NOT subject to the same tracking-prevention rules as
+        legacy <script src> tags, so OrbitControls loads fine.
+      - We use the official jsDelivr ESM build paths (/+esm) which
+        are specifically designed for this use case.
 
-    // ==========================================
-    // FUNCTION 2: PREVIEW IMAGE
-    // ==========================================
-    // What it does: Shows a preview of the selected image
-    // When it runs: Automatically when user selects a file
-    // How it works: Reads the file and displays it as an image
-    
-    // Listen for when user selects a file
-    document.getElementById('fileInput').addEventListener('change', function(event) {
-      
-      // Get the selected file from the input
-      const file = event.target.files[0];
-      
-      // Check if a file was actually selected
-      if (!file) {
-        return; // Exit if no file
+    IMPORTANT: onclick="sendFile()" in HTML buttons won't see
+    functions defined inside a type="module" script by default
+    (modules have their own scope). We expose the needed functions
+    on window.* so the HTML onclick attributes keep working.
+    ============================================================
+  -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three":                  "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+        "three/addons/":          "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
       }
+    }
+  </script>
 
-      // Store the file in our global variable
+  <script type="module">
+    /* ============================================================
+       JAVASCRIPT — FULL DOCUMENTATION
+       ============================================================
+
+       FLOW:
+         1. User selects an image  →  previewImage()
+         2. User clicks "Analyse"  →  sendFile()
+            a. Packages image in FormData
+            b. POST /api/process  (the Node.js server)
+            c. Server runs parser.py (OpenCV) → returns JSON
+         3. Response arrives       →  displayResults()  +  render3D()
+
+       KEY FIXES:
+         FIX-A  Explanation uses <pre>/white-space:pre-wrap so \n shows
+         FIX-B  Camera auto-fitted from actual bounding box of model
+         FIX-C  OrbitControls — drag to rotate, scroll to zoom
+         FIX-D  Rooms become floor slabs + 4 walls + transparent roof
+         FIX-E  Lighting (ambient + directional) for real shading
+         FIX-F  API_URL constant at the top — easy to change
+         FIX-G  Drag-and-drop on upload zone
+         FIX-H  ES Module imports — no more deprecated build warning,
+                no more tracking-prevention block on OrbitControls
+    ============================================================ */
+
+    /*
+      FIX-H: ES Module imports.
+      'three' and 'three/addons/' resolve via the importmap above.
+      This is the official modern way to load Three.js — no globals,
+      no deprecated build files, not affected by tracking prevention.
+    */
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ============================================================
+    // CONFIGURATION
+    // Change this URL if the backend runs on a different port/host
+    // ============================================================
+    const API_URL = 'http://localhost:3000/api/process';
+
+
+    // ============================================================
+    // GLOBAL STATE
+    // ============================================================
+    let selectedFile = null;   // The image file the user chose
+    let threeRenderer = null;  // Reuse / destroy renderer on re-upload
+
+
+    // ============================================================
+    // FILE INPUT: listen for file selection
+    // ============================================================
+    document.getElementById('fileInput').addEventListener('change', function (e) {
+      const file = e.target.files[0];
+      if (!file) return;
       selectedFile = file;
-
-      // Get the image preview element
-      const preview = document.getElementById('imagePreview');
-      
-      // FileReader is a built-in browser tool that reads files
-      const reader = new FileReader();
-
-      // This function runs when the file is fully read
-      reader.onload = function(e) {
-        // Set the image source to the file data
-        preview.src = e.target.result;
-        // Show the image
-        preview.classList.add('show');
-        
-        // Enable the Send button
-        document.getElementById('sendButton').disabled = false;
-        
-        // Show success message
-        showStatus('File attached successfully! Click "Send to AI" to process.', 'success');
-      };
-
-      // Start reading the file as a data URL (base64 encoded image)
-      reader.readAsDataURL(file);
+      previewImage(file);
     });
 
 
-    // ==========================================
-    // FUNCTION 3: SEND FILE TO BACKEND
-    // ==========================================
-    // What it does: Sends the selected image to the AI backend
-    // How it works: Uses fetch() to make an HTTP POST request
-    function sendFile() {
+    // ============================================================
+    // DRAG-AND-DROP on upload zone  (FIX-G)
+    // ============================================================
+    const uploadZone = document.getElementById('uploadZone');
 
-      // Check if a file has been selected
+    uploadZone.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      uploadZone.classList.add('drag-over');
+    });
+
+    uploadZone.addEventListener('dragleave', function () {
+      uploadZone.classList.remove('drag-over');
+    });
+
+    uploadZone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      uploadZone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      selectedFile = file;
+      previewImage(file);
+    });
+
+
+    // ============================================================
+    // FUNCTION: previewImage
+    // Shows a small preview of the chosen image inside Box 1.
+    // Uses FileReader to convert the local file into a data-URL
+    // that can be set as <img src="...">
+    // ============================================================
+    function previewImage(file) {
+      const reader = new FileReader();
+
+      reader.onload = function (e) {
+        const img = document.getElementById('imagePreview');
+        img.src = e.target.result;
+        img.classList.add('show');
+
+        // Enable the send button now that a file is ready
+        document.getElementById('sendButton').disabled = false;
+
+        showStatus('File ready. Click "Analyse & Build 3D" to process.', 'ok');
+      };
+
+      reader.readAsDataURL(file);
+    }
+
+
+    // ============================================================
+    // FUNCTION: sendFile
+    // Sends the selected image to the backend as multipart/form-data.
+    // The backend (server.js) receives it, runs parser.py,
+    // and returns JSON with { structure, materials, explanation }.
+    // ============================================================
+    function sendFile() {
       if (!selectedFile) {
-        showStatus('Please attach a file first!', 'error');
+        showStatus('Please attach a file first.', 'err');
         return;
       }
 
-      // Show loading state
-      showStatus('Processing your floor plan...', 'success');
-      document.getElementById('loadingSpinner').classList.add('show');
-      document.getElementById('threeMessage').textContent = 'Generating 3D model...';
+      // --- Show loading state ---
+      showStatus('Analysing floor plan…', 'ok');
+      showViewerLoading(true);
+      document.getElementById('sendButton').disabled = true;
 
-      // SIMPLIFIED: Create FormData (a way to package files for sending)
-      // Think of FormData like a shipping box - we put our file in it
-      const formData = new FormData();
-      formData.append('file', selectedFile);
+      // --- Package the file ---
+      // FormData is the standard way to send files over HTTP
+      const form = new FormData();
+      form.append('file', selectedFile);   // 'file' must match upload.single('file') in server.js
 
-      // Send the file to the backend using fetch()
-      // fetch() is like sending a letter - we specify where (URL) and what (formData)
-      fetch('http://localhost:3000/api/process', {
-        method: 'POST',  // POST means we're sending data
-        body: formData   // The data we're sending
+      // --- Send to backend ---
+      fetch(API_URL, {
+        method: 'POST',
+        body: form
+        // NOTE: Do NOT set Content-Type header manually —
+        // the browser sets it automatically with the correct boundary
       })
-      .then(function(response) {
-        // When server responds, convert response to JSON
-        // JSON is a format for structured data (like a dictionary)
+      .then(function (response) {
+        // If the server returned a non-2xx status, surface the error
+        if (!response.ok) {
+          return response.json().then(function (errData) {
+            throw new Error(errData.error || 'Server error ' + response.status);
+          });
+        }
         return response.json();
       })
-      .then(function(data) {
-        // SUCCESS! We got data back from the server
-        
-        // Hide loading spinner
-        document.getElementById('loadingSpinner').classList.remove('show');
-        
-        // Display the results
-        displayResults(data);
-        
-        // Render the 3D model
-        render3D(data.structure);
-        
-        // Show success message
-        showStatus('Floor plan processed successfully!', 'success');
+      .then(function (data) {
+        // --- Success ---
+        showViewerLoading(false);
+        document.getElementById('sendButton').disabled = false;
+        showStatus('Done! 3D model generated.', 'ok');
+
+        displayResults(data);   // Fill Box 3
+        render3D(data.structure); // Fill Box 2
       })
-      .catch(function(error) {
-        // ERROR! Something went wrong
-        console.error('Error:', error);
-        
-        // Hide loading spinner
-        document.getElementById('loadingSpinner').classList.remove('show');
-        document.getElementById('threeMessage').textContent = 'Upload a floor plan to see the 3D model';
-        
-        // Show error message to user
-        showStatus('Error processing file. Please try again or check if the backend server is running.', 'error');
+      .catch(function (err) {
+        // --- Error ---
+        showViewerLoading(false);
+        document.getElementById('sendButton').disabled = false;
+        console.error('Pipeline error:', err);
+        showStatus('Error: ' + err.message + '. Is the backend server running?', 'err');
       });
     }
 
 
-    // ==========================================
-    // FUNCTION 4: DISPLAY RESULTS
-    // ==========================================
-    // What it does: Shows the materials and explanation in Box 3
-    // Parameters: data - the JSON response from the backend
+    // ============================================================
+    // FUNCTION: displayResults
+    // Populates Box 3 with material chips and the AI explanation.
+    //
+    // FIX-A: explanation uses <pre> tag + white-space:pre-wrap
+    //         so that \n line-breaks in the text are rendered.
+    //         Original code injected into <p> which ignores \n.
+    // ============================================================
     function displayResults(data) {
-      
-      // Get the output container element
       const container = document.getElementById('outputContainer');
-      
-      // Create HTML to display the results
-      // We use template literals (backticks) to insert data into HTML
+
+      // Build material chips HTML
+      let chipsHTML = '';
+      (data.materials || []).forEach(function (mat) {
+        chipsHTML += `
+          <div class="material-chip">
+            <div class="chip-type">${mat.type.replace(/_/g, ' ')}</div>
+            <div class="chip-name">${mat.material}</div>
+            <div class="chip-reason">${mat.reason || ''}</div>
+          </div>`;
+      });
+
       container.innerHTML = `
-        
-        <!-- Structure Section -->
-        <div class="output-section">
-          <h3>🏛️ Building Structure</h3>
-          <div class="output-content">
-            <pre>${JSON.stringify(data.structure, null, 2)}</pre>
+        <div class="results-grid">
+
+          <!-- Left: material list -->
+          <div class="result-block">
+            <h3>🧱 Recommended Materials</h3>
+            ${chipsHTML}
           </div>
+
+          <!-- Right: AI explanation -->
+          <!-- FIX-A: use <pre class="explanation-box"> to honour \n newlines -->
+          <div class="result-block">
+            <h3>💡 Analysis &amp; Rationale</h3>
+            <pre class="explanation-box">${escapeHtml(data.explanation || '')}</pre>
+          </div>
+
         </div>
 
-        <!-- Materials Section -->
-        <div class="output-section">
-          <h3>🧱 Recommended Materials</h3>
-          <div class="output-content">
-            <pre>${JSON.stringify(data.materials, null, 2)}</pre>
-          </div>
-        </div>
-
-        <!-- Explanation Section -->
-        <div class="output-section">
-          <h3>💡 AI Explanation</h3>
-          <div class="output-content">
-            <p style="line-height: 1.8; color: var(--text-dark);">
-              ${data.explanation}
-            </p>
-          </div>
-        </div>
+        <!-- Collapsible raw JSON for debugging -->
+        <details>
+          <summary>🔍 Raw JSON response</summary>
+          <pre class="json">${escapeHtml(JSON.stringify(data, null, 2))}</pre>
+        </details>
       `;
     }
 
 
-    // ==========================================
-    // FUNCTION 5: SHOW STATUS MESSAGE
-    // ==========================================
-    // What it does: Displays success or error messages to the user
-    // Parameters: 
-    //   - message: the text to show
-    //   - type: 'success' or 'error'
-    function showStatus(message, type) {
-      const statusEl = document.getElementById('statusMessage');
-      
-      // Set the message text
-      statusEl.textContent = message;
-      
-      // Remove old status classes
-      statusEl.classList.remove('status-success', 'status-error');
-      
-      // Add the appropriate class based on type
-      if (type === 'success') {
-        statusEl.classList.add('status-success');
-      } else {
-        statusEl.classList.add('status-error');
-      }
-      
-      // Show the message
-      statusEl.classList.add('show');
-    }
-
-
-    // ==========================================
-    // FUNCTION 6: RENDER 3D MODEL
-    // ==========================================
-    // What it does: Creates a 3D visualization using Three.js
-    // Parameters: structure - contains room data (width, height, position)
-    // 
-    // SIMPLIFIED CHANGES:
-    // - Added step-by-step comments
-    // - Removed complex cleanup logic
-    // - Made variable names more descriptive
+    // ============================================================
+    // ============================================================
+    // FUNCTION: render3D
+    // ============================================================
+    //
+    // RENDERING STRATEGY (matches the reference target image):
+    //
+    //   The backend now returns:
+    //     structure.outer_shell  — the full building footprint
+    //     structure.rooms        — individual interior rooms
+    //
+    //   We render:
+    //     1. FLOOR SLAB         — flat concrete slab for the whole building
+    //     2. OUTER WALLS        — 4 thick brick walls around outer_shell
+    //     3. INTERIOR WALLS     — thin dividers derived from room boundaries
+    //        We trace the RIGHT and BOTTOM edge of each room as wall segments.
+    //        This avoids duplicating walls (left/top of one room = right/bottom
+    //        of its neighbour).
+    //
+    //   Materials are colour-coded:
+    //     Outer walls  = brick orange  (#c8603a)
+    //     Inner walls  = concrete grey (#a0a8b0)
+    //     Floor slab   = dark concrete (#5a6e64)
+    //
+    //   Scale: 0-100 normalised coords  →  0-50 Three.js units  (SCALE=0.5)
+    //   Wall height: 10 units (looks proportional for a single-storey house)
+    //   Outer wall thickness: 2.5 units (thick brick)
+    //   Inner wall thickness: 0.8 units (thin partition)
+    // ============================================================
     function render3D(structure) {
 
-      // Get the container where 3D will render
       const container = document.getElementById('threeContainer');
 
-      // STEP 1: Clear any old 3D content
-      // This removes previous renderings
+      // Tear down previous renderer cleanly
+      if (threeRenderer) { threeRenderer.dispose(); threeRenderer = null; }
       container.innerHTML = '';
+      document.getElementById('controlsHint').style.display = 'none';
 
-      // STEP 2: Create the 3D scene
-      // Think of this as creating an empty stage
-      const scene = new THREE.Scene();
+      // ── Validate data ──
+      const shell = structure.outer_shell;
+      const rooms = structure.rooms || [];
 
-      // STEP 3: Create a camera
-      // This is like our eye viewing the scene
-      // Parameters: field of view, aspect ratio, near, far
-      const camera = new THREE.PerspectiveCamera(
-        75,  // How wide the view is (like zoom)
-        container.clientWidth / container.clientHeight,  // Screen shape
-        0.1,   // Closest visible distance
-        1000   // Farthest visible distance
-      );
-
-      // STEP 4: Create the renderer
-      // This draws the 3D scene to the screen
-      const renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setSize(container.clientWidth, container.clientHeight);
-      container.appendChild(renderer.domElement);
-
-      // STEP 5: Create material for our 3D objects
-      // Material controls how objects look (color, texture, etc.)
-      const material = new THREE.MeshBasicMaterial({
-        color: 0x0077ff,   // Blue color
-        wireframe: true    // Show as wireframe (outline only)
-      });
-
-      // STEP 6: Create 3D boxes for each room
-      // Loop through each room in the structure
-      structure.rooms.forEach(function(room) {
-
-        // Create a box shape with room dimensions
-        const boxShape = new THREE.BoxGeometry(
-          room.width,   // Width
-          room.height,  // Height
-          2             // Depth (fixed at 2)
-        );
-
-        // Create a 3D object by combining shape and material
-        const roomBox = new THREE.Mesh(boxShape, material);
-
-        // Position the box in 3D space
-        roomBox.position.x = room.x;
-        roomBox.position.y = room.y;
-        roomBox.position.z = 0;
-
-        // Add the box to our scene
-        scene.add(roomBox);
-      });
-
-      // STEP 7: Position the camera
-      // Move camera back so we can see the model
-      camera.position.z = 50;
-
-      // STEP 8: Animation loop
-      // This function runs repeatedly to render the scene
-      function animate() {
-        // Request the next frame
-        requestAnimationFrame(animate);
-        
-        // Render the scene from the camera's perspective
-        renderer.render(scene, camera);
+      if (!shell) {
+        container.innerHTML = '<div class="viewer-placeholder"><span class="big-icon">⚠️</span><div>No building outline detected</div></div>';
+        return;
       }
 
-      // Start the animation
+      // ── Constants ──
+      const SCALE      = 0.5;    // normalised 0-100 → Three.js units
+      const WALL_H     = 10;     // wall height in scene units
+      const OUTER_T    = 2.5;    // outer wall thickness
+      const INNER_T    = 0.8;    // inner wall thickness
+      const FLOOR_T    = 0.4;    // floor slab thickness
+
+      // Convert outer shell to scene coords
+      const SX = shell.x      * SCALE;   // shell origin X
+      const SZ = shell.y      * SCALE;   // shell origin Z  (Y in 2D = Z in 3D)
+      const SW = shell.width  * SCALE;   // shell width
+      const SD = shell.height * SCALE;   // shell depth
+
+      // ── Scene ──
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x1a1d24);
+
+      // Subtle grid on ground plane for depth perception
+      const grid = new THREE.GridHelper(200, 50, 0x2a2f3d, 0x252a35);
+      grid.position.y = -0.01;
+      scene.add(grid);
+
+      // ── Materials (colour-coded) ──
+      const brickMat = new THREE.MeshPhongMaterial({
+        color:     0xc8603a,   // brick orange
+        shininess: 15,
+        specular:  0x331a10
+      });
+      const concreteMat = new THREE.MeshPhongMaterial({
+        color:     0xa0a8b0,   // concrete grey
+        shininess: 5
+      });
+      const floorMat = new THREE.MeshPhongMaterial({
+        color:     0x5a7060,   // dark concrete green-grey
+        shininess: 8
+      });
+
+      // ── Lighting ──
+      // Without lights, Phong material renders black.
+      scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+
+      const sun = new THREE.DirectionalLight(0xfffaee, 1.0);
+      sun.position.set(SW * 1.5, WALL_H * 3, SD * 2);
+      sun.castShadow = true;
+      sun.shadow.mapSize.width  = 1024;
+      sun.shadow.mapSize.height = 1024;
+      scene.add(sun);
+
+      // Fill light from the other side (softens harsh shadows)
+      const fill = new THREE.DirectionalLight(0xaaccff, 0.3);
+      fill.position.set(-SW, WALL_H, -SD);
+      scene.add(fill);
+
+      // ── Helper: add a box to the scene ──
+      // cx, cy, cz = centre position
+      // w, h, d    = dimensions
+      // mat        = material
+      function addBox(cx, cy, cz, w, h, d, mat) {
+        const geo  = new THREE.BoxGeometry(w, h, d);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(cx, cy, cz);
+        mesh.castShadow    = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        return mesh;
+      }
+
+      // ════════════════════════════════════════
+      // 1. FLOOR SLAB
+      //    One big flat slab covering the whole building footprint
+      // ════════════════════════════════════════
+      addBox(
+        SX + SW / 2,        // centre X
+        -FLOOR_T / 2,       // sits just below y=0
+        SZ + SD / 2,        // centre Z
+        SW, FLOOR_T, SD,
+        floorMat
+      );
+
+      // ════════════════════════════════════════
+      // 2. OUTER WALLS
+      //    Four thick walls around the building perimeter.
+      //    Each wall is centred on its edge of the shell.
+      //
+      //    Wall layout (top view):
+      //      Front  : z = SZ           (runs along X axis)
+      //      Back   : z = SZ+SD        (runs along X axis)
+      //      Left   : x = SX           (runs along Z axis)
+      //      Right  : x = SX+SW        (runs along Z axis)
+      // ════════════════════════════════════════
+      const wallCY = WALL_H / 2;   // vertical centre of all walls
+
+      // Front wall
+      addBox(SX + SW/2,  wallCY,  SZ,         SW,           WALL_H, OUTER_T, brickMat);
+      // Back wall
+      addBox(SX + SW/2,  wallCY,  SZ + SD,    SW,           WALL_H, OUTER_T, brickMat);
+      // Left wall (height same, spans full depth including front/back wall thickness)
+      addBox(SX,         wallCY,  SZ + SD/2,  OUTER_T,      WALL_H, SD,      brickMat);
+      // Right wall
+      addBox(SX + SW,    wallCY,  SZ + SD/2,  OUTER_T,      WALL_H, SD,      brickMat);
+
+      // ════════════════════════════════════════
+      // 3. INTERIOR WALLS
+      //    For each detected room, we draw wall segments along its
+      //    RIGHT edge (vertical divider) and BOTTOM edge (horizontal divider).
+      //
+      //    We skip edges that coincide with the outer shell boundary
+      //    (within a small tolerance) to avoid Z-fighting.
+      //
+      //    Only the top 6 rooms are used (sorted by area, largest first).
+      //    The very largest room is often the "open plan" area — we still
+      //    draw its dividing walls.
+      // ════════════════════════════════════════
+      const TOLERANCE = 4;   // normalised units; edges within this of the shell boundary are skipped
+
+      const shellRight  = shell.x + shell.width;
+      const shellBottom = shell.y + shell.height;
+
+      // Use top rooms only (skip tiny noise rooms)
+      const significantRooms = rooms.slice(0, 8);
+
+      significantRooms.forEach(function(room) {
+        const rx = room.x      * SCALE;
+        const rz = room.y      * SCALE;
+        const rw = room.width  * SCALE;
+        const rd = room.height * SCALE;
+
+        // ── RIGHT edge: vertical wall segment ──
+        const rightEdgeNorm = room.x + room.width;
+        const isOuterRight  = Math.abs(rightEdgeNorm - shellRight) < TOLERANCE;
+
+        if (!isOuterRight) {
+          addBox(
+            rx + rw,          // X: at right edge of this room
+            wallCY,
+            rz + rd / 2,      // Z: middle of room depth
+            INNER_T,
+            WALL_H,
+            rd,               // spans the full room depth
+            concreteMat
+          );
+        }
+
+        // ── BOTTOM edge: horizontal wall segment ──
+        const bottomEdgeNorm = room.y + room.height;
+        const isOuterBottom  = Math.abs(bottomEdgeNorm - shellBottom) < TOLERANCE;
+
+        if (!isOuterBottom) {
+          addBox(
+            rx + rw / 2,      // X: middle of room width
+            wallCY,
+            rz + rd,          // Z: at bottom edge of this room
+            rw,               // spans the full room width
+            WALL_H,
+            INNER_T,
+            concreteMat
+          );
+        }
+      });
+
+      // ════════════════════════════════════════
+      // 4. CAMERA SETUP
+      //    Position camera to see the whole model from an angle
+      //    similar to the reference image (front-right, elevated).
+      // ════════════════════════════════════════
+      const camera = new THREE.PerspectiveCamera(
+        50,
+        container.clientWidth / container.clientHeight,
+        0.1,
+        2000
+      );
+
+      // Compute model centre
+      const modelCX = SX + SW / 2;
+      const modelCZ = SZ + SD / 2;
+
+      // Place camera at an isometric-ish angle above-right of the model
+      camera.position.set(
+        modelCX + SW * 1.1,    // to the right
+        WALL_H  * 2.2,         // elevated
+        modelCZ + SD * 1.4     // in front
+      );
+      camera.lookAt(modelCX, WALL_H / 2, modelCZ);
+
+      // ════════════════════════════════════════
+      // 5. RENDERER
+      // ════════════════════════════════════════
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+      container.appendChild(renderer.domElement);
+      threeRenderer = renderer;
+
+      // ════════════════════════════════════════
+      // 6. ORBIT CONTROLS
+      //    Allows drag-to-rotate, scroll-to-zoom, right-drag-to-pan
+      // ════════════════════════════════════════
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.set(modelCX, WALL_H / 2, modelCZ);
+      controls.enableDamping  = true;
+      controls.dampingFactor  = 0.07;
+      controls.minDistance    = 10;
+      controls.maxDistance    = 300;
+      controls.maxPolarAngle  = Math.PI / 2.1;   // prevent going below ground
+      controls.update();
+
+      document.getElementById('controlsHint').style.display = 'block';
+
+      // ════════════════════════════════════════
+      // 7. ANIMATION LOOP
+      // ════════════════════════════════════════
+      function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      }
       animate();
+
+      // ── Resize handler ──
+      window.addEventListener('resize', function() {
+        if (!threeRenderer) return;
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+      });
+    }
+
+    // ============================================================
+    // HELPER: showStatus
+    // Displays a success (ok) or error (err) banner in Box 1.
+    // ============================================================
+    function showStatus(msg, type) {
+      const el = document.getElementById('statusMsg');
+      el.textContent = msg;
+      el.className = 'status show ' + type;
     }
 
 
-    /* ============================================
-       END OF JAVASCRIPT
-       
-       SUMMARY OF CHANGES:
-       ✓ Split complex logic into smaller functions
-       ✓ Added detailed comments for each step
-       ✓ Simplified FormData handling
-       ✓ Added user-friendly status messages
-       ✓ Improved error handling
-       ✓ Made variable names more descriptive
-       ✓ Used simpler loops (forEach instead of ES6)
-    ============================================ */
+    // ============================================================
+    // HELPER: showViewerLoading
+    // Shows / hides the spinner inside the 3D viewer box.
+    // ============================================================
+    function showViewerLoading(isLoading) {
+      document.getElementById('spinner').classList.toggle('show', isLoading);
+      document.getElementById('viewerIcon').style.display  = isLoading ? 'none'  : 'block';
+      document.getElementById('viewerMsg').textContent     = isLoading
+        ? 'Generating 3D model…'
+        : 'Upload a floor plan to generate the 3D model';
+    }
+
+
+    // ============================================================
+    // HELPER: escapeHtml
+    // Prevents XSS: converts <, >, &, " in data strings so they
+    // render as literal characters rather than HTML tags.
+    // ============================================================
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    /*
+      FIX-H (scope): type="module" scripts are NOT globally scoped.
+      HTML onclick="sendFile()" looks up window.sendFile, so we
+      must manually attach any function called from HTML attributes.
+    */
+    window.sendFile = sendFile;
 
   </script>
 
