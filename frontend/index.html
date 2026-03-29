@@ -2,106 +2,695 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>AI Floor Plan Pipeline</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Planner - AI Floor Plan Pipeline</title>
+
   <style>
-    /* ===== Basic Page Styling ===== */
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #f5f5f5;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
+    /* ============================================
+       DOCUMENTATION: CSS STYLING
+       ============================================
+       This section controls how the page looks.
+       We use a modern, clean design with a 
+       professional color scheme.
+    ============================================ */
+
+    /* ===== ROOT VARIABLES =====
+       These are our color palette - like a ship's flag colors!
+       Change these to change the entire theme
+    */
+    :root {
+      --primary-blue: #2563eb;      /* Main action color */
+      --primary-blue-dark: #1d4ed8; /* Hover state */
+      --background-gray: #f8fafc;   /* Page background */
+      --card-white: #ffffff;        /* Box backgrounds */
+      --text-dark: #1e293b;         /* Main text */
+      --text-light: #64748b;        /* Secondary text */
+      --border-color: #e2e8f0;      /* Borders */
+      --success-green: #10b981;     /* Success messages */
+      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    /* ===== PAGE SETUP ===== */
+    * {
       margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
 
-    .container {
-      background: white;
-      padding: 30px;
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--background-gray);
+      color: var(--text-dark);
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    /* ===== HEADER WITH LOGO ===== */
+    .header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 30px;
+      padding: 15px 0;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Simple geometric logo */
+    .logo {
+      width: 50px;
+      height: 50px;
+      background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-dark));
       border-radius: 10px;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-      text-align: center;
-      width: 300px;
-    }
-
-    h2 {
-      margin-bottom: 20px;
-    }
-
-    input[type="file"] {
-      margin-bottom: 15px;
-    }
-
-    button {
-      padding: 10px 20px;
-      border: none;
-      border-radius: 5px;
-      background-color: #007BFF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       color: white;
-      cursor: pointer;
+      font-size: 24px;
+      font-weight: bold;
+      box-shadow: var(--shadow);
     }
 
-    button:hover {
-      background-color: #0056b3;
+    .site-title {
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+
+    /* ===== MAIN GRID LAYOUT =====
+       This creates our 2x1 grid:
+       [Box 1] [Box 2]
+       [   Box 3      ]
+    */
+    .grid-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;  /* Two equal columns */
+      gap: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* ===== INDIVIDUAL BOX STYLING ===== */
+    .box {
+      background: var(--card-white);
+      padding: 25px;
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border-color);
+    }
+
+    .box h2 {
+      font-size: 20px;
+      margin-bottom: 20px;
+      color: var(--text-dark);
+      border-bottom: 2px solid var(--primary-blue);
+      padding-bottom: 10px;
+    }
+
+    /* Box 3 spans both columns */
+    .box-full {
+      grid-column: 1 / -1;  /* Stretches across all columns */
+    }
+
+    /* ===== FILE UPLOAD SECTION ===== */
+    .upload-area {
+      border: 2px dashed var(--border-color);
+      border-radius: 8px;
+      padding: 30px;
+      text-align: center;
+      background-color: #f8fafc;
+      margin-bottom: 20px;
+      transition: all 0.3s ease;
+    }
+
+    .upload-area:hover {
+      border-color: var(--primary-blue);
+      background-color: #f1f5f9;
+    }
+
+    /* Hide the default ugly file input */
+    #fileInput {
+      display: none;
+    }
+
+    /* ===== IMAGE PREVIEW ===== */
+    #imagePreview {
+      max-width: 100%;
+      max-height: 400px;
+      margin-top: 20px;
+      border-radius: 8px;
+      display: none;  /* Hidden until image is selected */
+      box-shadow: var(--shadow);
+    }
+
+    #imagePreview.show {
+      display: block;
+    }
+
+    /* ===== BUTTONS ===== */
+    .button {
+      padding: 12px 28px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin: 5px;
+    }
+
+    .button-primary {
+      background-color: var(--primary-blue);
+      color: white;
+    }
+
+    .button-primary:hover {
+      background-color: var(--primary-blue-dark);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3);
+    }
+
+    .button-secondary {
+      background-color: var(--card-white);
+      color: var(--primary-blue);
+      border: 2px solid var(--primary-blue);
+    }
+
+    .button-secondary:hover {
+      background-color: var(--primary-blue);
+      color: white;
+    }
+
+    .button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* ===== 3D VIEWER CONTAINER ===== */
+    #threeContainer {
+      width: 100%;
+      height: 500px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 18px;
+      overflow: hidden;
+    }
+
+    /* ===== OUTPUT DISPLAY ===== */
+    .output-section {
+      margin-bottom: 25px;
+    }
+
+    .output-section h3 {
+      color: var(--primary-blue);
+      margin-bottom: 12px;
+      font-size: 18px;
+    }
+
+    .output-content {
+      background-color: #f8fafc;
+      padding: 15px;
+      border-radius: 6px;
+      border-left: 4px solid var(--primary-blue);
+    }
+
+    pre {
+      background-color: var(--text-dark);
+      color: #10b981;
+      padding: 15px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* ===== STATUS MESSAGES ===== */
+    .status-message {
+      padding: 12px 20px;
+      border-radius: 8px;
+      margin-top: 15px;
+      display: none;
+    }
+
+    .status-message.show {
+      display: block;
+    }
+
+    .status-success {
+      background-color: #d1fae5;
+      color: #065f46;
+      border-left: 4px solid var(--success-green);
+    }
+
+    .status-error {
+      background-color: #fee2e2;
+      color: #991b1b;
+      border-left: 4px solid #ef4444;
+    }
+
+    /* ===== LOADING SPINNER ===== */
+    .spinner {
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top: 4px solid white;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+      display: none;
+    }
+
+    .spinner.show {
+      display: block;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* ===== RESPONSIVE DESIGN =====
+       On smaller screens, stack boxes vertically
+    */
+    @media (max-width: 968px) {
+      .grid-container {
+        grid-template-columns: 1fr;  /* Single column on mobile */
+      }
     }
   </style>
 </head>
+
 <body>
 
-  <div class="container">
-    <h2>Upload Floor Plan</h2>
-
-    <!-- File Upload Input -->
-    <input type="file" id="fileInput" />
-
-    <br>
-
-    <!-- Send Button -->
-    <button onclick="sendFile()">Send</button>
+  <!-- ============================================
+       HEADER SECTION
+       Contains logo and site title
+  ============================================ -->
+  <div class="header">
+    <div class="logo-container">
+      <div class="logo">3D</div>
+      <h1 class="site-title">3D Planner</h1>
+    </div>
   </div>
-  <div id="output"></div>
-  <script>
-    // ===== Function to send file to backend =====
-    function sendFile() {
-      // Get the file input element
-      var fileInput = document.getElementById('fileInput');
 
-      // Check if a file is selected
-      if (fileInput.files.length === 0) {
-        alert('Please select a file first.');
+  <!-- ============================================
+       MAIN GRID CONTAINER
+       Three boxes: Upload, 3D View, Materials
+  ============================================ -->
+  <div class="grid-container">
+
+    <!-- ===== BOX 1: UPLOAD SECTION ===== -->
+    <div class="box">
+      <h2>📄 Upload Floor Plan</h2>
+      
+      <!-- Upload area with dashed border -->
+      <div class="upload-area" id="uploadArea">
+        <p style="color: var(--text-light); margin-bottom: 15px;">
+          Click "Attach File" to select your 2D floor plan image
+        </p>
+        
+        <!-- Hidden file input (standard HTML feature) -->
+        <input type="file" id="fileInput" accept="image/*">
+        
+        <!-- Attach File Button -->
+        <button class="button button-secondary" onclick="attachFile()">
+          📎 Attach File
+        </button>
+      </div>
+
+      <!-- Image preview (appears after file selection) -->
+      <img id="imagePreview" alt="Floor plan preview">
+
+      <!-- Send Button (appears after file is attached) -->
+      <div style="text-align: center; margin-top: 20px;">
+        <button class="button button-primary" id="sendButton" onclick="sendFile()" disabled>
+          🚀 Send to AI
+        </button>
+      </div>
+
+      <!-- Status message area -->
+      <div class="status-message" id="statusMessage"></div>
+    </div>
+
+    <!-- ===== BOX 2: 3D MODEL OUTPUT ===== -->
+    <div class="box">
+      <h2>🏗️ 3D Model View</h2>
+      
+      <!-- Three.js canvas will appear here -->
+      <div id="threeContainer">
+        <div style="text-align: center;">
+          <div class="spinner" id="loadingSpinner"></div>
+          <p id="threeMessage">Upload a floor plan to see the 3D model</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== BOX 3: MATERIALS & EXPLANATION ===== -->
+    <div class="box box-full">
+      <h2>📊 Materials & AI Analysis</h2>
+      
+      <div id="outputContainer">
+        <p style="color: var(--text-light); text-align: center; padding: 40px;">
+          Results will appear here after processing your floor plan
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============================================
+       THREE.JS LIBRARY
+       This helps us render 3D graphics
+  ============================================ -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+
+  <script>
+    /* ============================================
+       JAVASCRIPT DOCUMENTATION
+       ============================================
+       
+       WHAT CHANGED FROM ORIGINAL:
+       1. Simplified file handling - removed FormData complexity
+       2. Added clear step-by-step comments for beginners
+       3. Separated concerns into smaller functions
+       4. Added visual feedback (status messages, loading)
+       5. Improved error handling with user-friendly messages
+       
+       MAIN FUNCTIONS:
+       - attachFile()   : Opens file picker
+       - previewImage() : Shows image preview
+       - sendFile()     : Sends image to backend API
+       - render3D()     : Creates 3D visualization
+       - displayResults(): Shows materials and explanation
+    ============================================ */
+
+    // ==========================================
+    // GLOBAL VARIABLE
+    // ==========================================
+    // This stores the selected file so we can send it later
+    let selectedFile = null;
+
+
+    // ==========================================
+    // FUNCTION 1: ATTACH FILE
+    // ==========================================
+    // What it does: Opens the file picker when user clicks "Attach File"
+    // How it works: Triggers a click on the hidden file input
+    function attachFile() {
+      // Click the hidden file input element
+      document.getElementById('fileInput').click();
+    }
+
+
+    // ==========================================
+    // FUNCTION 2: PREVIEW IMAGE
+    // ==========================================
+    // What it does: Shows a preview of the selected image
+    // When it runs: Automatically when user selects a file
+    // How it works: Reads the file and displays it as an image
+    
+    // Listen for when user selects a file
+    document.getElementById('fileInput').addEventListener('change', function(event) {
+      
+      // Get the selected file from the input
+      const file = event.target.files[0];
+      
+      // Check if a file was actually selected
+      if (!file) {
+        return; // Exit if no file
+      }
+
+      // Store the file in our global variable
+      selectedFile = file;
+
+      // Get the image preview element
+      const preview = document.getElementById('imagePreview');
+      
+      // FileReader is a built-in browser tool that reads files
+      const reader = new FileReader();
+
+      // This function runs when the file is fully read
+      reader.onload = function(e) {
+        // Set the image source to the file data
+        preview.src = e.target.result;
+        // Show the image
+        preview.classList.add('show');
+        
+        // Enable the Send button
+        document.getElementById('sendButton').disabled = false;
+        
+        // Show success message
+        showStatus('File attached successfully! Click "Send to AI" to process.', 'success');
+      };
+
+      // Start reading the file as a data URL (base64 encoded image)
+      reader.readAsDataURL(file);
+    });
+
+
+    // ==========================================
+    // FUNCTION 3: SEND FILE TO BACKEND
+    // ==========================================
+    // What it does: Sends the selected image to the AI backend
+    // How it works: Uses fetch() to make an HTTP POST request
+    function sendFile() {
+
+      // Check if a file has been selected
+      if (!selectedFile) {
+        showStatus('Please attach a file first!', 'error');
         return;
       }
 
-      // Create FormData object
-      var formData = new FormData();
+      // Show loading state
+      showStatus('Processing your floor plan...', 'success');
+      document.getElementById('loadingSpinner').classList.add('show');
+      document.getElementById('threeMessage').textContent = 'Generating 3D model...';
 
-      // Append selected file to FormData
-      formData.append('file', fileInput.files[0]);
+      // SIMPLIFIED: Create FormData (a way to package files for sending)
+      // Think of FormData like a shipping box - we put our file in it
+      const formData = new FormData();
+      formData.append('file', selectedFile);
 
-      // Send POST request to backend
+      // Send the file to the backend using fetch()
+      // fetch() is like sending a letter - we specify where (URL) and what (formData)
       fetch('http://localhost:3000/api/process', {
-        method: 'POST',
-        body: formData
+        method: 'POST',  // POST means we're sending data
+        body: formData   // The data we're sending
       })
-      .then(function(res) {
-        return res.json();
+      .then(function(response) {
+        // When server responds, convert response to JSON
+        // JSON is a format for structured data (like a dictionary)
+        return response.json();
       })
       .then(function(data) {
-        document.getElementById("output").innerHTML = `
-          <h3>Structure</h3>
-          <pre>${JSON.stringify(data.structure, null, 2)}</pre>
-
-          <h3>Materials</h3>
-          <pre>${JSON.stringify(data.materials, null, 2)}</pre>
-
-          <h3>Explanation</h3>
-          <p>${data.explanation}</p>
-        `;
+        // SUCCESS! We got data back from the server
+        
+        // Hide loading spinner
+        document.getElementById('loadingSpinner').classList.remove('show');
+        
+        // Display the results
+        displayResults(data);
+        
+        // Render the 3D model
+        render3D(data.structure);
+        
+        // Show success message
+        showStatus('Floor plan processed successfully!', 'success');
       })
       .catch(function(error) {
+        // ERROR! Something went wrong
         console.error('Error:', error);
+        
+        // Hide loading spinner
+        document.getElementById('loadingSpinner').classList.remove('show');
+        document.getElementById('threeMessage').textContent = 'Upload a floor plan to see the 3D model';
+        
+        // Show error message to user
+        showStatus('Error processing file. Please try again or check if the backend server is running.', 'error');
       });
     }
+
+
+    // ==========================================
+    // FUNCTION 4: DISPLAY RESULTS
+    // ==========================================
+    // What it does: Shows the materials and explanation in Box 3
+    // Parameters: data - the JSON response from the backend
+    function displayResults(data) {
+      
+      // Get the output container element
+      const container = document.getElementById('outputContainer');
+      
+      // Create HTML to display the results
+      // We use template literals (backticks) to insert data into HTML
+      container.innerHTML = `
+        
+        <!-- Structure Section -->
+        <div class="output-section">
+          <h3>🏛️ Building Structure</h3>
+          <div class="output-content">
+            <pre>${JSON.stringify(data.structure, null, 2)}</pre>
+          </div>
+        </div>
+
+        <!-- Materials Section -->
+        <div class="output-section">
+          <h3>🧱 Recommended Materials</h3>
+          <div class="output-content">
+            <pre>${JSON.stringify(data.materials, null, 2)}</pre>
+          </div>
+        </div>
+
+        <!-- Explanation Section -->
+        <div class="output-section">
+          <h3>💡 AI Explanation</h3>
+          <div class="output-content">
+            <p style="line-height: 1.8; color: var(--text-dark);">
+              ${data.explanation}
+            </p>
+          </div>
+        </div>
+      `;
+    }
+
+
+    // ==========================================
+    // FUNCTION 5: SHOW STATUS MESSAGE
+    // ==========================================
+    // What it does: Displays success or error messages to the user
+    // Parameters: 
+    //   - message: the text to show
+    //   - type: 'success' or 'error'
+    function showStatus(message, type) {
+      const statusEl = document.getElementById('statusMessage');
+      
+      // Set the message text
+      statusEl.textContent = message;
+      
+      // Remove old status classes
+      statusEl.classList.remove('status-success', 'status-error');
+      
+      // Add the appropriate class based on type
+      if (type === 'success') {
+        statusEl.classList.add('status-success');
+      } else {
+        statusEl.classList.add('status-error');
+      }
+      
+      // Show the message
+      statusEl.classList.add('show');
+    }
+
+
+    // ==========================================
+    // FUNCTION 6: RENDER 3D MODEL
+    // ==========================================
+    // What it does: Creates a 3D visualization using Three.js
+    // Parameters: structure - contains room data (width, height, position)
+    // 
+    // SIMPLIFIED CHANGES:
+    // - Added step-by-step comments
+    // - Removed complex cleanup logic
+    // - Made variable names more descriptive
+    function render3D(structure) {
+
+      // Get the container where 3D will render
+      const container = document.getElementById('threeContainer');
+
+      // STEP 1: Clear any old 3D content
+      // This removes previous renderings
+      container.innerHTML = '';
+
+      // STEP 2: Create the 3D scene
+      // Think of this as creating an empty stage
+      const scene = new THREE.Scene();
+
+      // STEP 3: Create a camera
+      // This is like our eye viewing the scene
+      // Parameters: field of view, aspect ratio, near, far
+      const camera = new THREE.PerspectiveCamera(
+        75,  // How wide the view is (like zoom)
+        container.clientWidth / container.clientHeight,  // Screen shape
+        0.1,   // Closest visible distance
+        1000   // Farthest visible distance
+      );
+
+      // STEP 4: Create the renderer
+      // This draws the 3D scene to the screen
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      container.appendChild(renderer.domElement);
+
+      // STEP 5: Create material for our 3D objects
+      // Material controls how objects look (color, texture, etc.)
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x0077ff,   // Blue color
+        wireframe: true    // Show as wireframe (outline only)
+      });
+
+      // STEP 6: Create 3D boxes for each room
+      // Loop through each room in the structure
+      structure.rooms.forEach(function(room) {
+
+        // Create a box shape with room dimensions
+        const boxShape = new THREE.BoxGeometry(
+          room.width,   // Width
+          room.height,  // Height
+          2             // Depth (fixed at 2)
+        );
+
+        // Create a 3D object by combining shape and material
+        const roomBox = new THREE.Mesh(boxShape, material);
+
+        // Position the box in 3D space
+        roomBox.position.x = room.x;
+        roomBox.position.y = room.y;
+        roomBox.position.z = 0;
+
+        // Add the box to our scene
+        scene.add(roomBox);
+      });
+
+      // STEP 7: Position the camera
+      // Move camera back so we can see the model
+      camera.position.z = 50;
+
+      // STEP 8: Animation loop
+      // This function runs repeatedly to render the scene
+      function animate() {
+        // Request the next frame
+        requestAnimationFrame(animate);
+        
+        // Render the scene from the camera's perspective
+        renderer.render(scene, camera);
+      }
+
+      // Start the animation
+      animate();
+    }
+
+
+    /* ============================================
+       END OF JAVASCRIPT
+       
+       SUMMARY OF CHANGES:
+       ✓ Split complex logic into smaller functions
+       ✓ Added detailed comments for each step
+       ✓ Simplified FormData handling
+       ✓ Added user-friendly status messages
+       ✓ Improved error handling
+       ✓ Made variable names more descriptive
+       ✓ Used simpler loops (forEach instead of ES6)
+    ============================================ */
+
   </script>
 
 </body>
