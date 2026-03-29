@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Floor Plan Pipeline</title>
+  <style>
+    /* ===== Basic Page Styling ===== */
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f5f5f5;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      text-align: center;
+      width: 300px;
+    }
+
+    h2 {
+      margin-bottom: 20px;
+    }
+
+    input[type="file"] {
+      margin-bottom: 15px;
+    }
+
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 5px;
+      background-color: #007BFF;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h2>Upload Floor Plan</h2>
+
+    <!-- File Upload Input -->
+    <input type="file" id="fileInput" />
+
+    <br>
+
+    <!-- Send Button -->
+    <button onclick="sendFile()">Send</button>
+  </div>
+  <div id="output"></div>
+  <script>
+    // ===== Function to send file to backend =====
+    function sendFile() {
+      // Get the file input element
+      var fileInput = document.getElementById('fileInput');
+
+      // Check if a file is selected
+      if (fileInput.files.length === 0) {
+        alert('Please select a file first.');
+        return;
+      }
+
+      // Create FormData object
+      var formData = new FormData();
+
+      // Append selected file to FormData
+      formData.append('file', fileInput.files[0]);
+
+      // Send POST request to backend
+      fetch('http://localhost:3000/api/process', {
+        method: 'POST',
+        body: formData
+      })
+      .then(function(res) {
+        return res.json();
+      })
+      .then(function(data) {
+        document.getElementById("output").innerHTML = `
+          <h3>Structure</h3>
+          <pre>${JSON.stringify(data.structure, null, 2)}</pre>
+
+          <h3>Materials</h3>
+          <pre>${JSON.stringify(data.materials, null, 2)}</pre>
+
+          <h3>Explanation</h3>
+          <p>${data.explanation}</p>
+        `;
+      })
+      .catch(function(error) {
+        console.error('Error:', error);
+      });
+    }
+  </script>
+
+</body>
+</html>
