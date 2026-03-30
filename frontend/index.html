@@ -611,7 +611,7 @@
         return;
       }
 
-      // --- Show loading state ---
+      // --- Show loading state 
       showStatus('Analysing floor plan…', 'ok');
       showViewerLoading(true);
       document.getElementById('sendButton').disabled = true;
@@ -734,236 +734,269 @@
     //   Outer wall thickness: 2.5 units (thick brick)
     //   Inner wall thickness: 0.8 units (thin partition)
     // ============================================================
-    function render3D(structure) {
+function render3D(structure) {
 
       const container = document.getElementById('threeContainer');
 
-      // Tear down previous renderer cleanly
       if (threeRenderer) { threeRenderer.dispose(); threeRenderer = null; }
       container.innerHTML = '';
       document.getElementById('controlsHint').style.display = 'none';
 
-      // ── Validate data ──
-      const shell = structure.outer_shell;
-      const rooms = structure.rooms || [];
+      const shell    = structure.outer_shell;
+      const rooms    = Array.isArray(structure.rooms)         ? structure.rooms         : [];
+      const wallSegs = Array.isArray(structure.wall_segments) ? structure.wall_segments : [];
+      const openings = Array.isArray(structure.openings)      ? structure.openings      : [];
 
       if (!shell) {
         container.innerHTML = '<div class="viewer-placeholder"><span class="big-icon">⚠️</span><div>No building outline detected</div></div>';
         return;
       }
 
-      // ── Constants ──
-      const SCALE      = 0.5;    // normalised 0-100 → Three.js units
-      const WALL_H     = 10;     // wall height in scene units
-      const OUTER_T    = 2.5;    // outer wall thickness
-      const INNER_T    = 0.8;    // inner wall thickness
-      const FLOOR_T    = 0.4;    // floor slab thickness
+      // ── Constants ──────────────────────────────────────────────
+      const SCALE   = 0.5;   // normalised 0-100 → Three.js units
+      const WALL_H  = 10;    // wall height
+      const OUTER_T = 1.6;   // outer wall thickness
+      const INNER_T = 0.6;   // inner wall thickness
+      const FLOOR_T = 0.4;   // floor slab thickness
+      const GAP     = 1.2;   // clearance around openings (normalised units)
+      const MIN_SEG = 0.8;   // minimum wall fragment to render (scene units)
 
-      // Convert outer shell to scene coords
-      const SX = shell.x      * SCALE;   // shell origin X
-      const SZ = shell.y      * SCALE;   // shell origin Z  (Y in 2D = Z in 3D)
-      const SW = shell.width  * SCALE;   // shell width
-      const SD = shell.height * SCALE;   // shell depth
+      // Shell bounds in scene units
+      const SX = shell.x      * SCALE;
+      const SZ = shell.y      * SCALE;
+      const SW = shell.width  * SCALE;
+      const SD = shell.height * SCALE;
 
-      // ── Scene ──
+      // ── Scene ──────────────────────────────────────────────────
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x1a1d24);
-
-      // Subtle grid on ground plane for depth perception
       const grid = new THREE.GridHelper(200, 50, 0x2a2f3d, 0x252a35);
       grid.position.y = -0.01;
       scene.add(grid);
 
-      // ── Materials (colour-coded) ──
-      const brickMat = new THREE.MeshPhongMaterial({
-        color:     0xc8603a,   // brick orange
-        shininess: 15,
-        specular:  0x331a10
-      });
-      const concreteMat = new THREE.MeshPhongMaterial({
-        color:     0xa0a8b0,   // concrete grey
-        shininess: 5
-      });
-      const floorMat = new THREE.MeshPhongMaterial({
-        color:     0x5a7060,   // dark concrete green-grey
-        shininess: 8
-      });
+      // ── Materials ──────────────────────────────────────────────
+      const outerMat = new THREE.MeshPhongMaterial({ color: 0xc8603a, shininess: 14, specular: 0x331a10 });
+      const innerMat = new THREE.MeshPhongMaterial({ color: 0xa0a8b0, shininess: 5 });
+      const floorMat = new THREE.MeshPhongMaterial({ color: 0x5a7060, shininess: 8 });
+      const glassMat = new THREE.MeshPhongMaterial({ color: 0x82cfff, transparent: true, opacity: 0.55, shininess: 80 });
+      const doorMat  = new THREE.MeshPhongMaterial({ color: 0x8B5C2A, shininess: 12 });
 
-      // ── Lighting ──
-      // Without lights, Phong material renders black.
-      scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-
+      // ── Lighting ───────────────────────────────────────────────
+      scene.add(new THREE.AmbientLight(0xffffff, 0.52));
       const sun = new THREE.DirectionalLight(0xfffaee, 1.0);
       sun.position.set(SW * 1.5, WALL_H * 3, SD * 2);
       sun.castShadow = true;
-      sun.shadow.mapSize.width  = 1024;
-      sun.shadow.mapSize.height = 1024;
+      sun.shadow.mapSize.width = sun.shadow.mapSize.height = 1024;
       scene.add(sun);
-
-      // Fill light from the other side (softens harsh shadows)
-      const fill = new THREE.DirectionalLight(0xaaccff, 0.3);
+      const fill = new THREE.DirectionalLight(0xaaccff, 0.28);
       fill.position.set(-SW, WALL_H, -SD);
       scene.add(fill);
 
-      // ── Helper: add a box to the scene ──
-      // cx, cy, cz = centre position
-      // w, h, d    = dimensions
-      // mat        = material
+      // ── Helper: add a box mesh ─────────────────────────────────
       function addBox(cx, cy, cz, w, h, d, mat) {
-        const geo  = new THREE.BoxGeometry(w, h, d);
-        const mesh = new THREE.Mesh(geo, mat);
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(Math.max(w, 0.05), Math.max(h, 0.05), Math.max(d, 0.05)),
+          mat
+        );
         mesh.position.set(cx, cy, cz);
-        mesh.castShadow    = true;
-        mesh.receiveShadow = true;
+        mesh.castShadow = mesh.receiveShadow = true;
         scene.add(mesh);
         return mesh;
       }
 
-      // ════════════════════════════════════════
-      // 1. FLOOR SLAB
-      //    One big flat slab covering the whole building footprint
-      // ════════════════════════════════════════
-      addBox(
-        SX + SW / 2,        // centre X
-        -FLOOR_T / 2,       // sits just below y=0
-        SZ + SD / 2,        // centre Z
-        SW, FLOOR_T, SD,
-        floorMat
-      );
+      // ── 1. FLOOR SLAB ──────────────────────────────────────────
+      addBox(SX + SW / 2, -FLOOR_T / 2, SZ + SD / 2, SW, FLOOR_T, SD, floorMat);
 
-      // ════════════════════════════════════════
-      // 2. OUTER WALLS
-      //    Four thick walls around the building perimeter.
-      //    Each wall is centred on its edge of the shell.
+      // ── 2. WALLS ───────────────────────────────────────────────
       //
-      //    Wall layout (top view):
-      //      Front  : z = SZ           (runs along X axis)
-      //      Back   : z = SZ+SD        (runs along X axis)
-      //      Left   : x = SX           (runs along Z axis)
-      //      Right  : x = SX+SW        (runs along Z axis)
-      // ════════════════════════════════════════
-      const wallCY = WALL_H / 2;   // vertical centre of all walls
-
-      // Front wall
-      addBox(SX + SW/2,  wallCY,  SZ,         SW,           WALL_H, OUTER_T, brickMat);
-      // Back wall
-      addBox(SX + SW/2,  wallCY,  SZ + SD,    SW,           WALL_H, OUTER_T, brickMat);
-      // Left wall (height same, spans full depth including front/back wall thickness)
-      addBox(SX,         wallCY,  SZ + SD/2,  OUTER_T,      WALL_H, SD,      brickMat);
-      // Right wall
-      addBox(SX + SW,    wallCY,  SZ + SD/2,  OUTER_T,      WALL_H, SD,      brickMat);
-
-      // ════════════════════════════════════════
-      // 3. INTERIOR WALLS
-      //    For each detected room, we draw wall segments along its
-      //    RIGHT edge (vertical divider) and BOTTOM edge (horizontal divider).
+      // STRATEGY: render from wall_segments if available,
+      // otherwise fall back to room-boundary method.
       //
-      //    We skip edges that coincide with the outer shell boundary
-      //    (within a small tolerance) to avoid Z-fighting.
-      //
-      //    Only the top 6 rooms are used (sorted by area, largest first).
-      //    The very largest room is often the "open plan" area — we still
-      //    draw its dividing walls.
-      // ════════════════════════════════════════
-      const TOLERANCE = 4;   // normalised units; edges within this of the shell boundary are skipped
+      // Opening gap cutting: for each wall segment, check if any
+      // opening overlaps it. If so, split the segment into fragments
+      // that skip the opening gap. Only fragments >= MIN_SEG are drawn.
 
-      const shellRight  = shell.x + shell.width;
-      const shellBottom = shell.y + shell.height;
+      function cutSegment(seg, openings) {
+        // Collect all gaps (in normalised coords) along this segment
+        const gaps = [];
 
-      // Use top rooms only (skip tiny noise rooms)
-      const significantRooms = rooms.slice(0, 8);
+        openings.forEach(function(op) {
+          if (seg.orientation === 'horizontal') {
+            // Opening must be near the same Y as the wall
+            const wallY  = seg.y1;
+            const opCY   = op.y + op.height / 2;
+            if (Math.abs(opCY - wallY) > 4) return;
+            // X overlap
+            if (op.x + op.width <= seg.x1 || op.x >= seg.x2) return;
+            gaps.push([
+              Math.max(seg.x1, op.x - GAP),
+              Math.min(seg.x2, op.x + op.width + GAP)
+            ]);
+          } else {
+            // Vertical wall
+            const wallX  = seg.x1;
+            const opCX   = op.x + op.width / 2;
+            if (Math.abs(opCX - wallX) > 4) return;
+            if (op.y + op.height <= seg.y1 || op.y >= seg.y2) return;
+            gaps.push([
+              Math.max(seg.y1, op.y - GAP),
+              Math.min(seg.y2, op.y + op.height + GAP)
+            ]);
+          }
+        });
 
-      significantRooms.forEach(function(room) {
-        const rx = room.x      * SCALE;
-        const rz = room.y      * SCALE;
-        const rw = room.width  * SCALE;
-        const rd = room.height * SCALE;
+        if (!gaps.length) return [seg];
 
-        // ── RIGHT edge: vertical wall segment ──
-        const rightEdgeNorm = room.x + room.width;
-        const isOuterRight  = Math.abs(rightEdgeNorm - shellRight) < TOLERANCE;
-
-        if (!isOuterRight) {
-          addBox(
-            rx + rw,          // X: at right edge of this room
-            wallCY,
-            rz + rd / 2,      // Z: middle of room depth
-            INNER_T,
-            WALL_H,
-            rd,               // spans the full room depth
-            concreteMat
-          );
+        // Merge overlapping gaps
+        gaps.sort((a, b) => a[0] - b[0]);
+        const merged = [gaps[0].slice()];
+        for (let i = 1; i < gaps.length; i++) {
+          const last = merged[merged.length - 1];
+          if (gaps[i][0] <= last[1]) last[1] = Math.max(last[1], gaps[i][1]);
+          else merged.push(gaps[i].slice());
         }
 
-        // ── BOTTOM edge: horizontal wall segment ──
-        const bottomEdgeNorm = room.y + room.height;
-        const isOuterBottom  = Math.abs(bottomEdgeNorm - shellBottom) < TOLERANCE;
+        // Produce fragments between gaps
+        const isH    = seg.orientation === 'horizontal';
+        let cursor   = isH ? seg.x1 : seg.y1;
+        const segEnd = isH ? seg.x2 : seg.y2;
+        const frags  = [];
 
-        if (!isOuterBottom) {
+        merged.forEach(function(gap) {
+          if (gap[0] - cursor > 0.2) {
+            frags.push(isH
+              ? { ...seg, x1: cursor, x2: gap[0] }
+              : { ...seg, y1: cursor, y2: gap[0] });
+          }
+          cursor = Math.max(cursor, gap[1]);
+        });
+
+        if (segEnd - cursor > 0.2) {
+          frags.push(isH
+            ? { ...seg, x1: cursor, x2: segEnd }
+            : { ...seg, y1: cursor, y2: segEnd });
+        }
+
+        return frags;
+      }
+
+      function renderWallFragment(frag, mat, thickness) {
+        if (frag.orientation === 'horizontal') {
+          const w = Math.abs(frag.x2 - frag.x1) * SCALE;
+          if (w < MIN_SEG) return;
           addBox(
-            rx + rw / 2,      // X: middle of room width
-            wallCY,
-            rz + rd,          // Z: at bottom edge of this room
-            rw,               // spans the full room width
-            WALL_H,
-            INNER_T,
-            concreteMat
+            ((frag.x1 + frag.x2) / 2) * SCALE,
+            WALL_H / 2,
+            frag.y1 * SCALE,
+            w, WALL_H, thickness, mat
+          );
+        } else {
+          const d = Math.abs(frag.y2 - frag.y1) * SCALE;
+          if (d < MIN_SEG) return;
+          addBox(
+            frag.x1 * SCALE,
+            WALL_H / 2,
+            ((frag.y1 + frag.y2) / 2) * SCALE,
+            thickness, WALL_H, d, mat
           );
         }
+      }
+
+      if (wallSegs.length > 0) {
+        // ── Use wall_segments from parser ──
+        wallSegs.forEach(function(seg) {
+          const mat       = seg.kind === 'outer' ? outerMat : innerMat;
+          const thickness = seg.kind === 'outer' ? OUTER_T  : INNER_T;
+          const frags     = cutSegment(seg, openings);
+          frags.forEach(function(frag) { renderWallFragment(frag, mat, thickness); });
+        });
+
+      } else {
+        // ── Fallback: 4 outer walls + room dividers ──
+        const shellRight  = shell.x + shell.width;
+        const shellBottom = shell.y + shell.height;
+
+        // 4 perimeter walls
+        [
+          { orientation:'horizontal', x1:shell.x, x2:shellRight,  y1:shell.y,       y2:shell.y,       kind:'outer' },
+          { orientation:'horizontal', x1:shell.x, x2:shellRight,  y1:shellBottom,   y2:shellBottom,   kind:'outer' },
+          { orientation:'vertical',   x1:shell.x, x2:shell.x,     y1:shell.y,       y2:shellBottom,   kind:'outer' },
+          { orientation:'vertical',   x1:shellRight, x2:shellRight, y1:shell.y,      y2:shellBottom,   kind:'outer' },
+        ].forEach(function(seg) {
+          const frags = cutSegment(seg, openings);
+          frags.forEach(function(frag) { renderWallFragment(frag, outerMat, OUTER_T); });
+        });
+
+        // Room dividers
+        rooms.slice(0, 12).forEach(function(room) {
+          const rx2 = room.x + room.width;
+          const ry2 = room.y + room.height;
+          const TOL = 4;
+
+          if (Math.abs(rx2 - shellRight) > TOL) {
+            const seg = { orientation:'vertical', x1:rx2, x2:rx2, y1:room.y, y2:ry2, kind:'interior' };
+            cutSegment(seg, openings).forEach(function(frag) { renderWallFragment(frag, innerMat, INNER_T); });
+          }
+          if (Math.abs(ry2 - shellBottom) > TOL) {
+            const seg = { orientation:'horizontal', x1:room.x, x2:rx2, y1:ry2, y2:ry2, kind:'interior' };
+            cutSegment(seg, openings).forEach(function(frag) { renderWallFragment(frag, innerMat, INNER_T); });
+          }
+        });
+      }
+
+      // ── 3. OPENINGS (doors + windows) ─────────────────────────
+      openings.forEach(function(op) {
+        const isWindow  = op.type === 'window';
+        const isHoriz   = op.orientation === 'horizontal';
+        const mat       = isWindow ? glassMat : doorMat;
+
+        const cx = (op.x + op.width  / 2) * SCALE;
+        const cz = (op.y + op.height / 2) * SCALE;
+
+        const panelW = isHoriz
+          ? Math.max(op.width  * SCALE * 0.85, 0.5)
+          : (isWindow ? 0.2 : 0.15);
+        const panelD = isHoriz
+          ? (isWindow ? 0.2 : 0.15)
+          : Math.max(op.height * SCALE * 0.85, 0.5);
+
+        const panelH = isWindow ? WALL_H * 0.32 : WALL_H * 0.75;
+        const panelY = isWindow ? WALL_H * 0.65  : WALL_H * 0.38;
+
+        addBox(cx, panelY, cz, panelW, panelH, panelD, mat);
       });
 
-      // ════════════════════════════════════════
-      // 4. CAMERA SETUP
-      //    Position camera to see the whole model from an angle
-      //    similar to the reference image (front-right, elevated).
-      // ════════════════════════════════════════
-      const camera = new THREE.PerspectiveCamera(
-        50,
-        container.clientWidth / container.clientHeight,
-        0.1,
-        2000
-      );
-
-      // Compute model centre
+      // ── 4. CAMERA ──────────────────────────────────────────────
       const modelCX = SX + SW / 2;
       const modelCZ = SZ + SD / 2;
 
-      // Place camera at an isometric-ish angle above-right of the model
-      camera.position.set(
-        modelCX + SW * 1.1,    // to the right
-        WALL_H  * 2.2,         // elevated
-        modelCZ + SD * 1.4     // in front
+      const camera = new THREE.PerspectiveCamera(
+        50, container.clientWidth / container.clientHeight, 0.1, 2000
       );
+      camera.position.set(modelCX + SW * 1.1, WALL_H * 2.4, modelCZ + SD * 1.4);
       camera.lookAt(modelCX, WALL_H / 2, modelCZ);
 
-      // ════════════════════════════════════════
-      // 5. RENDERER
-      // ════════════════════════════════════════
+      // ── 5. RENDERER ────────────────────────────────────────────
       const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(container.clientWidth, container.clientHeight);
       renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       container.appendChild(renderer.domElement);
       threeRenderer = renderer;
 
-      // ════════════════════════════════════════
-      // 6. ORBIT CONTROLS
-      //    Allows drag-to-rotate, scroll-to-zoom, right-drag-to-pan
-      // ════════════════════════════════════════
+      // ── 6. ORBIT CONTROLS ──────────────────────────────────────
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.target.set(modelCX, WALL_H / 2, modelCZ);
       controls.enableDamping  = true;
       controls.dampingFactor  = 0.07;
       controls.minDistance    = 10;
       controls.maxDistance    = 300;
-      controls.maxPolarAngle  = Math.PI / 2.1;   // prevent going below ground
+      controls.maxPolarAngle  = Math.PI / 2.1;
       controls.update();
-
       document.getElementById('controlsHint').style.display = 'block';
 
-      // ════════════════════════════════════════
-      // 7. ANIMATION LOOP
-      // ════════════════════════════════════════
+      // ── 7. ANIMATE ─────────────────────────────────────────────
       function animate() {
         requestAnimationFrame(animate);
         controls.update();
@@ -971,7 +1004,6 @@
       }
       animate();
 
-      // ── Resize handler ──
       window.addEventListener('resize', function() {
         if (!threeRenderer) return;
         camera.aspect = container.clientWidth / container.clientHeight;
