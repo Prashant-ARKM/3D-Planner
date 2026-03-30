@@ -1,408 +1,343 @@
 #!/usr/bin/env python3
 """
-materials.py — AI Material Recommendation Engine
-==================================================
-Input:  JSON string (the parsed structure + metrics from parser.py)
-Output: JSON to stdout with shape:
-
-{
-  "materials": [
-    {
-      "type": "exterior_wall",
-      "material": "Red Burnt Brick",
-      "cost_index": 2,        # 1=low, 2=medium, 3=high
-      "durability_index": 5,  # 1-5
-      "reason": "..."
-    },
-    ...
-  ],
-  "explanation": "Full human-readable justification..."
-}
-
-Decision logic
---------------
-The engine applies a COST vs DURABILITY/STRENGTH trade-off matrix.
-It inspects:
-  - floor_area          → small / medium / large building
-  - aspect_ratio        → compact vs elongated plan
-  - outer_wall_perimeter → how much exterior wall exposure
-  - inner_wall_length   → density of interior partitions
-  - room_count          → complexity
-
-For each building component the engine scores candidate materials
-and picks the one with the best trade-off score:
-  score = (durability_index * 2) - cost_index
-
-This favours durability while penalising excessive cost.
+materials.py  —  Gemini-Powered Material Recommendation Engine
+===============================================================
 """
 
 import sys
 import json
+import os
+import warnings
 
-
-# ─────────────────────────────────────────────────────────────────
-# MATERIAL DATABASE
-# Each entry: cost_index (1=cheap, 3=expensive), durability (1-5)
-# ─────────────────────────────────────────────────────────────────
-MATERIALS = {
-
-    # ── Exterior walls ──────────────────────────────────────────
-    "exterior_wall": [
-        {
-            "material":        "Red Burnt Brick",
-            "cost_index":      2,
-            "durability_index": 5,
-            "tags":            ["all"],
-            "blurb":           (
-                "Classic fired clay brick: 50-100+ year lifespan, "
-                "excellent compressive strength (~10 MPa), superior "
-                "weather and fire resistance. Mid-range cost."
-            )
-        },
-        {
-            "material":        "Fly Ash Brick",
-            "cost_index":      1,
-            "durability_index": 4,
-            "tags":            ["budget", "small"],
-            "blurb":           (
-                "Made from industrial by-product; ~15% cheaper than "
-                "red brick. Compressive strength 7.5-10 MPa, good "
-                "thermal mass, eco-friendly."
-            )
-        },
-        {
-            "material":        "Reinforced Concrete Frame (RCC)",
-            "cost_index":      3,
-            "durability_index": 5,
-            "tags":            ["large", "multi-storey"],
-            "blurb":           (
-                "Ideal for larger structures. Steel-reinforced concrete "
-                "provides exceptional seismic and load resistance. "
-                "Higher upfront cost offset by longevity."
-            )
-        },
-        {
-            "material":        "Autoclaved Aerated Concrete (AAC) Block",
-            "cost_index":      2,
-            "durability_index": 3,
-            "tags":            ["medium", "thermal"],
-            "blurb":           (
-                "Lightweight, excellent thermal insulation (U ~0.15). "
-                "Faster to lay than brick; moderate compressive strength "
-                "(3-5 MPa). Good for single-storey residential."
-            )
-        },
-    ],
-
-    # ── Interior / partition walls ──────────────────────────────
-    "interior_wall": [
-        {
-            "material":        "AAC Block (100 mm)",
-            "cost_index":      2,
-            "durability_index": 3,
-            "tags":            ["all"],
-            "blurb":           (
-                "Light (650 kg/m³), easy to cut on site, good acoustic "
-                "and thermal separation between rooms."
-            )
-        },
-        {
-            "material":        "Hollow Concrete Block",
-            "cost_index":      1,
-            "durability_index": 4,
-            "tags":            ["budget", "large"],
-            "blurb":           (
-                "Budget-friendly partition option. Hollow core reduces "
-                "dead load while maintaining adequate lateral stability."
-            )
-        },
-        {
-            "material":        "Gypsum Board (Drywall)",
-            "cost_index":      1,
-            "durability_index": 2,
-            "tags":            ["small", "many_rooms"],
-            "blurb":           (
-                "Fastest, cheapest partition for non-load-bearing "
-                "interior divisions. Fire-rated variants available. "
-                "Not suitable for wet areas."
-            )
-        },
-        {
-            "material":        "Brick (Half-Brick / 115 mm)",
-            "cost_index":      2,
-            "durability_index": 5,
-            "tags":            ["durable"],
-            "blurb":           (
-                "Traditional interior partition with excellent sound "
-                "insulation and durability. Heavier than AAC; "
-                "recommended where acoustic privacy is critical."
-            )
-        },
-    ],
-
-    # ── Floor slab ──────────────────────────────────────────────
-    "floor_slab": [
-        {
-            "material":        "Reinforced Cement Concrete (RCC) Slab",
-            "cost_index":      2,
-            "durability_index": 5,
-            "tags":            ["all"],
-            "blurb":           (
-                "Standard M20-M25 grade RCC; 50-100+ year service life, "
-                "supports 1.5-2 kN/m² live load easily. "
-                "Monolithic pour gives integral strength."
-            )
-        },
-        {
-            "material":        "Precast Hollow-Core Plank",
-            "cost_index":      3,
-            "durability_index": 5,
-            "tags":            ["large", "fast"],
-            "blurb":           (
-                "Factory-controlled quality, crane-installed in hours. "
-                "Reduces self-weight by 30% vs solid slab; ideal for "
-                "large-span rooms."
-            )
-        },
-        {
-            "material":        "Composite Deck (Steel + Concrete)",
-            "cost_index":      3,
-            "durability_index": 5,
-            "tags":            ["multi-storey"],
-            "blurb":           (
-                "Profiled steel deck acts as formwork and tensile "
-                "reinforcement; very fast construction for upper floors."
-            )
-        },
-    ],
-
-    # ── Roof ────────────────────────────────────────────────────
-    "roof": [
-        {
-            "material":        "RCC Flat Roof (M25)",
-            "cost_index":      2,
-            "durability_index": 5,
-            "tags":            ["all"],
-            "blurb":           (
-                "Robust, allows future vertical extension. "
-                "Apply waterproof membrane (polyurethane or bitumen) "
-                "for leak prevention. 40+ year lifespan."
-            )
-        },
-        {
-            "material":        "Clay Roof Tiles on Timber Rafters",
-            "cost_index":      2,
-            "durability_index": 4,
-            "tags":            ["pitched", "residential"],
-            "blurb":           (
-                "Attractive pitched roof option; natural thermal mass. "
-                "50-100 year tile lifespan. Not suitable if future "
-                "storey addition is planned."
-            )
-        },
-        {
-            "material":        "Metal Deck Roofing (Galvalume)",
-            "cost_index":      1,
-            "durability_index": 3,
-            "tags":            ["budget", "fast"],
-            "blurb":           (
-                "Lightest, fastest roof option. 25-30 year lifespan "
-                "with good anti-corrosion coating. Best for workshops, "
-                "garages, or low-cost residential."
-            )
-        },
-    ],
-
-    # ── Foundation ──────────────────────────────────────────────
-    "foundation": [
-        {
-            "material":        "Strip Foundation (M20 PCC + RCC)",
-            "cost_index":      2,
-            "durability_index": 5,
-            "tags":            ["all"],
-            "blurb":           (
-                "Standard for load-bearing wall buildings on stable "
-                "soil. 600 mm wide × 300 mm deep typically; "
-                "economical and proven."
-            )
-        },
-        {
-            "material":        "Isolated Footing (Column Footings)",
-            "cost_index":      2,
-            "durability_index": 5,
-            "tags":            ["large", "frame"],
-            "blurb":           (
-                "Used with RCC column-frame construction. "
-                "Each column gets an independent pad footing; "
-                "efficient material usage."
-            )
-        },
-        {
-            "material":        "Raft Foundation",
-            "cost_index":      3,
-            "durability_index": 5,
-            "tags":            ["weak_soil", "large"],
-            "blurb":           (
-                "A single continuous slab distributes load across the "
-                "entire footprint. Required on soft/expansive soils "
-                "or where differential settlement is a concern."
-            )
-        },
-    ],
-
-    # ── Thermal & waterproofing ──────────────────────────────────
-    "waterproofing": [
-        {
-            "material":        "Polyurethane (PU) Liquid Membrane",
-            "cost_index":      2,
-            "durability_index": 5,
-            "tags":            ["flat_roof", "wet_areas"],
-            "blurb":           (
-                "Seamless application over any shape; 10-15 year service "
-                "life. UV stable. Apply 1.5-2 mm DFT. "
-                "Best for flat RCC roofs and wet rooms."
-            )
-        },
-        {
-            "material":        "APP Bituminous Membrane (Torch-on)",
-            "cost_index":      1,
-            "durability_index": 4,
-            "tags":            ["budget", "roof"],
-            "blurb":           (
-                "Two-layer torch-applied bitumen; 4 mm total. "
-                "Cost-effective for large roof areas. "
-                "Requires qualified applicator."
-            )
-        },
-    ],
-}
+# Suppress the Google SDK deprecation warning to keep your terminal clean
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # ─────────────────────────────────────────────────────────────────
-# SELECTION LOGIC
+# 1. LOAD .env
 # ─────────────────────────────────────────────────────────────────
+def load_dotenv(env_path: str) -> dict:
+    env = {}
+    if not os.path.exists(env_path):
+        return env
 
-def trade_off_score(mat: dict) -> float:
-    """Higher score = better durability for the cost."""
-    return mat["durability_index"] * 2 - mat["cost_index"]
+    with open(env_path, "rb") as f:
+        raw = f.read()
 
+    lines = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n").decode("utf-8").split("\n")
 
-def classify_building(metrics: dict) -> set:
-    """Return a set of descriptive tags based on building metrics."""
-    tags = {"all"}
-    area = metrics.get("floor_area", 50)
-    ratio = metrics.get("aspect_ratio", 1.2)
-    rooms = metrics.get("room_count", 4)
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, raw_val = line.partition("=")
+        env[key.strip()] = raw_val.strip().strip('"').strip("'").strip()
 
-    if area < 30:
-        tags.add("small")
-    elif area < 70:
-        tags.add("medium")
+    return env
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH   = os.path.join(SCRIPT_DIR, ".env")
+env_vars   = load_dotenv(ENV_PATH)
+
+GEMINI_API_KEY = env_vars.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
+
+# 🚀 FIX: Hardcoded back to gemini-2.5-flash (which we know works on your key!)
+GEMINI_MODEL   = "gemini-2.5-flash"
+
+# ─────────────────────────────────────────────────────────────────
+# 2. BUILD THE PROMPT
+# ─────────────────────────────────────────────────────────────────
+def build_prompt(parsed: dict) -> str:
+    structure = parsed.get("structure", {})
+    metrics   = parsed.get("metrics",   {})
+
+    room_count    = structure.get("room_count",           "unknown")
+    total_area    = structure.get("total_area",           "unknown")
+    floor_area    = metrics.get("floor_area",             "unknown")
+    perimeter     = metrics.get("outer_wall_perimeter",   "unknown")
+    inner_len     = metrics.get("inner_wall_length",      "unknown")
+    aspect_ratio  = metrics.get("aspect_ratio",           "unknown")
+
+    rooms = structure.get("rooms", [])
+    room_lines = ""
+    if rooms:
+        room_lines = "\n".join(
+            f"  - Room {i+1}: {r.get('width', '?'):.1f} × {r.get('height', '?'):.1f} "
+            f"(area {r.get('area', '?'):.1f} norm units)"
+            for i, r in enumerate(rooms[:8])
+        )
     else:
-        tags.add("large")
+        room_lines = "  (no individual rooms detected)"
 
-    if rooms > 6:
-        tags.add("many_rooms")
+    opening_summary = structure.get("opening_summary", {})
+    door_count    = opening_summary.get("door_count",            0)
+    window_count  = opening_summary.get("window_count",          0)
+    gross_wall_m2 = opening_summary.get("gross_wall_area_m2",    "unknown")
+    net_wall_m2   = opening_summary.get("net_wall_area_m2",      "unknown")
+    deduction_m2  = opening_summary.get("opening_deduction_m2",  "unknown")
+    door_area_m2  = opening_summary.get("total_door_area_m2",    "unknown")
+    win_area_m2   = opening_summary.get("total_window_area_m2",  "unknown")
 
-    if ratio > 1.8:
-        tags.add("elongated")
+    prompt = f"""
+You are an expert structural engineer and construction material consultant.
 
-    return tags
+A 2D floor plan has been analysed by computer vision software.
+Below are the extracted building metrics. Your task is to recommend
+the optimal construction material for each building component,
+clearly explaining the cost vs durability/strength trade-off for every decision.
 
+════════════════════════════════════════
+BUILDING PROFILE (all coordinates 0-100 normalised scale)
+════════════════════════════════════════
+  Room count            : {room_count}
+  Total floor area      : {total_area} sq normalised units
+  Floor area (shell)    : {floor_area} sq normalised units
+  Outer wall perimeter  : {perimeter} normalised units
+  Interior wall length  : {inner_len} normalised units
+  Aspect ratio (W/H)    : {aspect_ratio}
 
-def best_material(candidates: list, building_tags: set) -> dict:
-    """
-    From the candidate list, prefer materials whose tags overlap with
-    building_tags.  Break ties by trade_off_score.
-    """
-    def relevance(mat):
-        overlap = len(set(mat.get("tags", [])) & building_tags)
-        return (overlap, trade_off_score(mat))
+Detected rooms:
+{room_lines}
 
-    return max(candidates, key=relevance)
+════════════════════════════════════════
+OPENINGS DETECTED (doors & windows)
+════════════════════════════════════════
+  Doors detected        : {door_count}  (standard 0.9 m × 2.1 m each = {door_area_m2} m² total)
+  Windows detected      : {window_count}  (standard 1.2 m × 1.2 m each = {win_area_m2} m² total)
+  Total opening area    : {deduction_m2} m²  ← DEDUCT from wall material quantities
+  Gross wall area       : {gross_wall_m2} m²  (before deductions)
+  Net wall area         : {net_wall_m2} m²   (after deducting all openings)
 
+IMPORTANT: All brick, mortar, plaster, and render quantities must be
+calculated on the NET wall area ({net_wall_m2} m²), NOT the gross area.
 
-def recommend(parsed: dict) -> dict:
-    metrics       = parsed.get("metrics", {})
-    structure     = parsed.get("structure", {})
-    room_count    = structure.get("room_count", 3)
+════════════════════════════════════════
+INSTRUCTIONS
+════════════════════════════════════════
+For each of these 6 building components, recommend ONE specific material:
+  1. exterior_wall
+  2. interior_wall
+  3. floor_slab
+  4. roof
+  5. foundation
+  6. waterproofing
 
-    # Inject room_count into metrics for classify_building
-    metrics["room_count"] = room_count
-    building_tags = classify_building(metrics)
+For each component:
+  - Consider the building size, room count, and aspect ratio
+  - Weigh COST (1=low, 2=medium, 3=high) vs DURABILITY (1-5 scale)
+  - Use the trade-off logic: prefer durability unless cost is prohibitive
+  - Give a concrete, specific justification (mention MPa strength, lifespan,
+    cost savings in %, or specific suitability for this building size)
+  - Cost and durability must be integers in the given ranges
 
-    selected = {}
-    for component, candidates in MATERIALS.items():
-        selected[component] = best_material(candidates, building_tags)
+════════════════════════════════════════
+REQUIRED OUTPUT FORMAT
+════════════════════════════════════════
+Respond with ONLY a valid JSON object — no markdown, no code fences,
+no explanation outside the JSON. The structure must be exactly:
 
-    # ── Build output list ────────────────────────────────────────
-    materials_out = []
-    for comp_key, mat in selected.items():
-        materials_out.append({
-            "type":             comp_key,
-            "material":         mat["material"],
-            "cost_index":       mat["cost_index"],
-            "durability_index": mat["durability_index"],
-            "reason":           mat["blurb"]
-        })
+{{
+  "materials": [
+    {{
+      "type":             "exterior_wall",
+      "material":         "<specific material name>",
+      "cost_index":       <integer 1-3>,
+      "durability_index": <integer 1-5>,
+      "reason":           "<2-3 sentences explaining cost vs durability trade-off for this building>"
+    }},
+    {{
+      "type":             "interior_wall",
+      "material":         "...",
+      "cost_index":       <1-3>,
+      "durability_index": <1-5>,
+      "reason":           "..."
+    }},
+    {{
+      "type":             "floor_slab",
+      "material":         "...",
+      "cost_index":       <1-3>,
+      "durability_index": <1-5>,
+      "reason":           "..."
+    }},
+    {{
+      "type":             "roof",
+      "material":         "...",
+      "cost_index":       <1-3>,
+      "durability_index": <1-5>,
+      "reason":           "..."
+    }},
+    {{
+      "type":             "foundation",
+      "material":         "...",
+      "cost_index":       <1-3>,
+      "durability_index": <1-5>,
+      "reason":           "..."
+    }},
+    {{
+      "type":             "waterproofing",
+      "material":         "...",
+      "cost_index":       <1-3>,
+      "durability_index": <1-5>,
+      "reason":           "..."
+    }}
+  ],
+  "explanation": "<A full 200-300 word building analysis report.>"
+}}
+""".strip()
 
-    # ── Human-readable explanation ───────────────────────────────
-    area       = metrics.get("floor_area", "N/A")
-    perimeter  = metrics.get("outer_wall_perimeter", "N/A")
-    inner_len  = metrics.get("inner_wall_length", "N/A")
-    ratio      = metrics.get("aspect_ratio", "N/A")
+    return prompt
 
-    cost_labels = {1: "Low", 2: "Medium", 3: "High"}
-    dur_labels  = {1: "Poor", 2: "Fair", 3: "Good", 4: "Very Good", 5: "Excellent"}
+# ─────────────────────────────────────────────────────────────────
+# 3. CALL GEMINI API (VIA OFFICIAL SDK)
+# ─────────────────────────────────────────────────────────────────
+def call_gemini(prompt: str) -> dict:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY not found in .env")
 
-    lines = [
-        "BUILDING ANALYSIS SUMMARY",
-        "=" * 45,
-        f"  Floor area          : {area} normalised units²",
-        f"  Outer wall perimeter: {perimeter} normalised units",
-        f"  Interior wall length: {inner_len} normalised units",
-        f"  Aspect ratio        : {ratio}",
-        f"  Detected rooms      : {room_count}",
-        f"  Building profile    : {', '.join(sorted(building_tags - {'all'}))}",
-        "",
-        "MATERIAL RECOMMENDATIONS (Cost vs Durability Trade-off)",
-        "=" * 45,
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        raise RuntimeError("Missing SDK. Please run: pip install google-generativeai")
+
+    genai.configure(api_key=GEMINI_API_KEY)
+
+    try:
+        model = genai.GenerativeModel(
+            model_name=GEMINI_MODEL,
+            system_instruction="You are a structural engineering expert. You ALWAYS respond with valid JSON only."
+        )
+        
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.GenerationConfig(
+                temperature=0.3,
+                max_output_tokens=8192,
+                response_mime_type="application/json"
+            )
+        )
+        
+        # The official SDK natively handles text extraction and limits
+        return json.loads(response.text)
+        
+    except Exception as e:
+        error_msg = str(e)
+        if "429" in error_msg or "Quota" in error_msg:
+            raise RuntimeError(f"QUOTA EXCEEDED for {GEMINI_MODEL}. {error_msg[:200]}")
+        raise RuntimeError(f"Gemini SDK Error: {error_msg}")
+
+# ─────────────────────────────────────────────────────────────────
+# 4. FALLBACK
+# ─────────────────────────────────────────────────────────────────
+def hardcoded_fallback(parsed: dict) -> dict:
+    metrics    = parsed.get("metrics",   {})
+    structure  = parsed.get("structure", {})
+    room_count = structure.get("room_count", 3)
+    floor_area = metrics.get("floor_area", 50)
+
+    size = "small" if floor_area < 30 else ("large" if floor_area > 70 else "medium")
+
+    materials_out = [
+        {
+            "type":             "exterior_wall",
+            "material":         "Red Burnt Brick" if size != "large" else "Reinforced Concrete Frame",
+            "cost_index":       2,
+            "durability_index": 5,
+            "reason":           "Red Burnt Brick offers 50-100+ year lifespan with ~10 MPa compressive strength at medium cost."
+        },
+        {
+            "type":             "interior_wall",
+            "material":         "AAC Block (100 mm)",
+            "cost_index":       2,
+            "durability_index": 3,
+            "reason":           f"For {room_count} interior partitions, AAC Block reduces dead load by 40% vs brick."
+        },
+        {
+            "type":             "floor_slab",
+            "material":         "Reinforced Cement Concrete (RCC) Slab",
+            "cost_index":       2,
+            "durability_index": 5,
+            "reason":           "M20-grade RCC slab supports 1.5-2 kN/m² live load with 50+ year service life."
+        },
+        {
+            "type":             "roof",
+            "material":         "RCC Flat Roof (M25)",
+            "cost_index":       2,
+            "durability_index": 5,
+            "reason":           "Flat RCC roof allows future vertical extension (additional floors)."
+        },
+        {
+            "type":             "foundation",
+            "material":         "Strip Foundation (M20 PCC + RCC)",
+            "cost_index":       2,
+            "durability_index": 5,
+            "reason":           "Standard strip footing is proven and economical for load-bearing wall construction."
+        },
+        {
+            "type":             "waterproofing",
+            "material":         "Polyurethane (PU) Liquid Membrane",
+            "cost_index":       2,
+            "durability_index": 5,
+            "reason":           "Seamless PU membrane at 1.5-2 mm DFT; UV stable, 10-15 year service life."
+        },
     ]
 
-    for mat_info in materials_out:
-        comp = mat_info["type"].replace("_", " ").title()
-        name = mat_info["material"]
-        cost = cost_labels.get(mat_info["cost_index"], "?")
-        dur  = dur_labels.get(mat_info["durability_index"], "?")
-        score = mat_info["durability_index"] * 2 - mat_info["cost_index"]
-        lines.append(f"\n▸ {comp}: {name}")
-        lines.append(f"  Cost: {cost}  |  Durability: {dur}  |  Trade-off score: {score}/9")
-        lines.append(f"  {mat_info['reason']}")
+    explanation = (
+        "BUILDING ANALYSIS SUMMARY\n"
+        "(Fallback Mode — Gemini API unavailable)\n\n"
+        f"Rooms detected : {room_count}\n"
+        f"Building size  : {size}\n"
+        f"Floor area     : {floor_area} normalised units\n\n"
+        "Materials selected using rule-based cost/durability trade-off.\n"
+        "All recommendations target a 30+ year structural lifespan\n"
+        "at medium cost, suitable for standard residential construction."
+    )
 
-    lines += [
-        "",
-        "SELECTION METHODOLOGY",
-        "=" * 45,
-        "Materials were scored using:  score = (durability × 2) − cost",
-        "This formula prioritises long-term structural integrity while",
-        "penalising excessive upfront expense. Materials matching the",
-        "detected building profile (size, room density, aspect ratio)",
-        "are ranked higher than equally scored generic options.",
-    ]
+    return {"materials": materials_out, "explanation": explanation}
 
-    explanation = "\n".join(lines)
+# ─────────────────────────────────────────────────────────────────
+# 5. MAIN ENTRY POINT
+# ─────────────────────────────────────────────────────────────────
+def main():
+    raw_input = sys.stdin.read().strip()
 
-    return {
-        "materials":   materials_out,
-        "explanation": explanation
-    }
+    if not raw_input:
+        print(json.dumps({"error": "No input received on stdin", "materials": [], "explanation": ""}))
+        sys.exit(1)
 
+    try:
+        parsed = json.loads(raw_input)
+    except json.JSONDecodeError as e:
+        print(json.dumps({"error": f"Invalid JSON from parser: {e}", "materials": [], "explanation": ""}))
+        sys.exit(1)
+
+    try:
+        prompt = build_prompt(parsed)
+        # The SDK returns the pre-parsed dictionary directly
+        result = call_gemini(prompt)
+
+        if "materials" not in result or "explanation" not in result:
+            raise ValueError("Gemini response missing 'materials' or 'explanation' keys")
+
+        for mat in result["materials"]:
+            mat["trade_off_score"] = mat.get("durability_index", 3) * 2 - mat.get("cost_index", 2)
+
+        result["source"] = "gemini"
+        print(json.dumps(result))
+
+    except Exception as gemini_error:
+        print(f"[materials.py] Gemini error: {gemini_error}", file=sys.stderr)
+        
+        try:
+            result = hardcoded_fallback(parsed)
+            result["source"]  = "fallback"
+            result["warning"] = f"Gemini unavailable: {str(gemini_error)[:120]}"
+            result["explanation"] += f"\n\n🚨 API ERROR DETAILS:\n{str(gemini_error)}"
+            
+            print(json.dumps(result))
+        except Exception as fallback_error:
+            print(json.dumps({"error": f"Both Gemini and fallback failed", "materials": [], "explanation": "", "source": "error"}))
+            sys.exit(1)
 
 if __name__ == "__main__":
-    raw = sys.stdin.read().strip()
-    try:
-        parsed = json.loads(raw)
-        result = recommend(parsed)
-        print(json.dumps(result))
-    except Exception as exc:
-        print(json.dumps({"error": str(exc), "materials": [], "explanation": ""}))
-        sys.exit(1)
+    main()

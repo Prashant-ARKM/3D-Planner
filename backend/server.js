@@ -122,16 +122,33 @@ function indexOf(haystack, needle, offset = 0) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Run a Python script and return parsed JSON output
 // ─────────────────────────────────────────────────────────────────
+// Run a Python script and return parsed JSON output.
+//
+// FIX: Detect python3 vs python automatically.
+//   On Windows: 'python' works. On Mac/Linux: 'python3' is correct.
+//   Using the wrong one causes a silent spawn error (ENOENT).
+//
+// FIX: Print Python stderr to the server console.
+//   materials.py logs Gemini errors to stderr — previously these
+//   were silently swallowed. Now they appear in your terminal so
+//   you can see exactly why Gemini is failing.
+// ─────────────────────────────────────────────────────────────────
+const PYTHON_BIN = process.platform === 'win32' ? 'python' : 'python3';
+
 function runPython(scriptPath, args = [], stdinData = null) {
   return new Promise((resolve, reject) => {
-    const py = spawn('python3', [scriptPath, ...args]);
+    const py = spawn(PYTHON_BIN, [scriptPath, ...args]);
     const outChunks = [];
     const errChunks = [];
 
     py.stdout.on('data', d => outChunks.push(d));
-    py.stderr.on('data', d => errChunks.push(d));
+
+    // FIX: Print Python stderr live to server console (shows Gemini errors)
+    py.stderr.on('data', d => {
+      errChunks.push(d);
+      process.stderr.write('[Python] ' + d.toString());
+    });
 
     py.on('close', code => {
       const raw = Buffer.concat(outChunks).toString('utf8').trim();
@@ -139,7 +156,7 @@ function runPython(scriptPath, args = [], stdinData = null) {
 
       if (!raw) {
         return reject(new Error(
-          `Python script returned no output (exit ${code}). Stderr: ${err}`
+          `Python script returned no output (exit ${code}).\nStderr: ${err}`
         ));
       }
 
@@ -148,11 +165,20 @@ function runPython(scriptPath, args = [], stdinData = null) {
         if (parsed.error) return reject(new Error(parsed.error));
         resolve(parsed);
       } catch (e) {
-        reject(new Error(`JSON parse error: ${e.message}. Raw: ${raw.slice(0, 200)}`));
+        reject(new Error(`JSON parse error: ${e.message}.\nRaw output: ${raw.slice(0, 300)}`));
       }
     });
 
-    py.on('error', reject);
+    py.on('error', (err) => {
+      if (err.code === 'ENOENT') {
+        reject(new Error(
+          `Python not found: tried "${PYTHON_BIN}". ` +
+          `Install Python 3 and ensure it is on your PATH.`
+        ));
+      } else {
+        reject(err);
+      }
+    });
 
     if (stdinData) {
       py.stdin.write(stdinData);
